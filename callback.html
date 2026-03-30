@@ -5,7 +5,7 @@
 <div id="status" style="text-align:center;font-size:1.2rem">Loggar in...</div>
 <script>
 const CLIENT_ID = '6576fae87ab646b09d80122c49d373d2';
-const REDIRECT_URI = 'https://nicjon.github.io/dashboard/callback.html';
+const REDIRECT_URI = 'https://ekholmniklas.github.io/dashboard/callback.html';
 
 async function handleCallback() {
   const params = new URLSearchParams(window.location.search);
@@ -17,7 +17,6 @@ async function handleCallback() {
     return;
   }
 
-  // Exchange code for token
   const body = new URLSearchParams({
     client_id: CLIENT_ID,
     grant_type: 'authorization_code',
@@ -39,7 +38,6 @@ async function handleCallback() {
       localStorage.setItem('spotify_token_time', Date.now());
       if (data.refresh_token) localStorage.setItem('spotify_refresh_token', data.refresh_token);
       document.getElementById('status').innerHTML = 'Inloggad! <br>Gå tillbaka till dashboarden.';
-      // Try to message opener
       if (window.opener) {
         window.opener.postMessage({ type: 'spotify_token', token: data.access_token }, '*');
         setTimeout(() => window.close(), 1500);
