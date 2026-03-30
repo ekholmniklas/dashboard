@@ -346,10 +346,17 @@
       box-shadow: 0 2px 10px rgba(0,0,0,0.4); transition: all 0.3s;
     }
     .fab:active { transform: scale(0.95); }
-    .fab-voice { background: #21262d; color: #8b949e; border: 2px solid #30363d; }
+    .fab-voice { background: #21262d; color: #8b949e; border: 2px solid #30363d; position: relative; }
     .fab-voice.listening { background: #1DB954; color: #fff; border-color: #1DB954; animation: pulse 1.5s infinite; }
     .fab-voice.processing { background: #3b82f6; color: #fff; border-color: #3b82f6; }
     .fab-voice.speaking { background: #8b5cf6; color: #fff; border-color: #8b5cf6; }
+    .fab-voice[data-wake]::after {
+      content: ''; position: absolute; bottom: 1px; right: 1px;
+      width: 9px; height: 9px; border-radius: 50%;
+      background: #1DB954; border: 1.5px solid #0d1117;
+      animation: wake-pulse 2.5s infinite;
+    }
+    @keyframes wake-pulse { 0%,100%{opacity:.5;} 50%{opacity:1;} }
     @keyframes pulse {
       0%, 100% { box-shadow: 0 0 15px rgba(29,185,84,0.3); }
       50% { box-shadow: 0 0 25px rgba(29,185,84,0.5); }
@@ -1593,17 +1600,66 @@ Om användaren frågar om väder: svara med en kort sammanfattning av vädret ba
 Övriga frågor: svara kort och koncist.
 VIKTIGT: Alla svar ska vara på svenska. Även JSON-kommandon. Aldrig engelska.`;
     let voiceState='idle';
-    function setVoiceState(s){voiceState=s;voiceBtn.className='fab fab-voice'+(s!=='idle'?` ${s}`:'');}
     const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-    voiceBtn.addEventListener('click',async()=>{
-      if(voiceState==='listening')return;if(voiceState==='speaking'){window.speechSynthesis.cancel();setVoiceState('idle');return;}
+
+    // ===== WAKE WORD ("Jarvis") =====
+    let wakeRec=null, wakeActive=false;
+    function startWakeWord(){
+      if(!SR||voiceState!=='idle')return;
+      try{
+        wakeRec=new SR();
+        wakeRec.lang=CONFIG.voiceLanguage;
+        wakeRec.continuous=true;
+        wakeRec.interimResults=true;
+        wakeRec.maxAlternatives=1;
+        wakeRec.onresult=e=>{
+          for(let i=e.resultIndex;i<e.results.length;i++){
+            const t=e.results[i][0].transcript.toLowerCase();
+            if(t.includes('jarvis')||t.includes('järvis')){
+              wakeRec.stop(); wakeActive=false;
+              delete voiceBtn.dataset.wake;
+              setTimeout(()=>startVoiceCommand(),400);
+              return;
+            }
+          }
+        };
+        wakeRec.onend=()=>{ if(wakeActive&&voiceState==='idle') setTimeout(startWakeWord,800); };
+        wakeRec.onerror=e=>{ if(wakeActive&&voiceState==='idle'&&e.error!=='aborted') setTimeout(startWakeWord,1500); };
+        wakeRec.start();
+        wakeActive=true;
+        voiceBtn.dataset.wake='1';
+      }catch(e){}
+    }
+    function stopWakeWord(){
+      wakeActive=false;
+      delete voiceBtn.dataset.wake;
+      if(wakeRec){try{wakeRec.stop();}catch(e){} wakeRec=null;}
+    }
+
+    function setVoiceState(s){
+      voiceState=s;
+      voiceBtn.className='fab fab-voice'+(s!=='idle'?` ${s}`:'');
+      if(s==='idle'){ setTimeout(startWakeWord,1200); }
+      else { stopWakeWord(); }
+    }
+
+    function startVoiceCommand(){
+      if(voiceState==='listening')return;
+      if(voiceState==='speaking'){window.speechSynthesis.cancel();setVoiceState('idle');return;}
       if(timerAudioCtx.state==='suspended')timerAudioCtx.resume();
-      if(!SR){alert('Taligenkänning stöds inte. Använd Chrome.');return;}
+      if(!SR)return;
       const r=new SR();r.lang=CONFIG.voiceLanguage;r.interimResults=false;r.maxAlternatives=1;
       setVoiceState('listening');voiceTranscript.classList.add('active');voiceUserText.textContent='Lyssnar...';voiceAiText.textContent='';
       r.onresult=async e=>{const t=e.results[0][0].transcript;voiceUserText.textContent=t;setVoiceState('processing');try{handleAI(await AIProvider.chat(t,SYS_PROMPT),t);}catch(er){voiceAiText.textContent='Fel: '+er.message;setVoiceState('idle');}};
       r.onerror=()=>{voiceUserText.textContent='Kunde inte höra.';setVoiceState('idle');setTimeout(()=>voiceTranscript.classList.remove('active'),3000);};
-      r.onend=()=>{if(voiceState==='listening')setVoiceState('idle');};r.start();
+      r.onend=()=>{if(voiceState==='listening')setVoiceState('idle');};
+      r.start();
+    }
+
+    voiceBtn.addEventListener('click',()=>{
+      if(voiceState==='listening')return;
+      if(voiceState==='speaking'){window.speechSynthesis.cancel();setVoiceState('idle');return;}
+      startVoiceCommand();
     });
     function handleAI(res, ut) {
       try {
@@ -1685,6 +1741,9 @@ VIKTIGT: Alla svar ska vara på svenska. Även JSON-kommandon. Aldrig engelska.`
     // ===== WAKE LOCK + SW =====
     (async()=>{try{if('wakeLock' in navigator){await navigator.wakeLock.request('screen');document.addEventListener('visibilitychange',async()=>{if(document.visibilityState==='visible')try{await navigator.wakeLock.request('screen');}catch(e){}});}}catch(e){}})();
     if('serviceWorker' in navigator)navigator.serviceWorker.register('dashboard-sw.js').catch(()=>{});
+
+    // Start wake word listening after short init delay
+    setTimeout(startWakeWord, 2000);
   </script>
 </body>
 </html>
