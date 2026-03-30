@@ -1,0 +1,1690 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0d1117">
+  <link rel="manifest" href="dashboard-manifest.json">
+  <title>Home Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100vw; height: 100vh; overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0d1117; color: #e6edf3;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      user-select: none; -webkit-user-select: none;
+    }
+    .dashboard {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr;
+      gap: 8px;
+      height: 100vh; width: 100vw;
+      padding: 8px;
+    }
+    .col-stack {
+      display: flex; flex-direction: column; gap: 8px;
+      min-height: 0;
+    }
+    .panel {
+      background: #161b22;
+      border-radius: 14px;
+      overflow: hidden;
+      position: relative;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+      flex-shrink: 0;
+    }
+    .panel.flex-grow { flex: 1; min-height: 0; overflow-y: auto; }
+    .panel-header {
+      font-size: 0.8rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      color: #8b949e; padding: 8px 12px 2px;
+    }
+
+    /* ===== SLIDESHOW ===== */
+    .panel-slideshow { background: #1a1a2e; overflow: hidden; }
+    .photo-info {
+      position: absolute; top: 14px; left: 14px; z-index: 4;
+      background: rgba(0,0,0,0.52); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      border-radius: 10px; padding: 7px 14px;
+      color: #fff; font-size: 0.88rem; font-weight: 400; letter-spacing: 0.01em;
+      opacity: 0; transition: opacity 0.8s ease; pointer-events: none;
+      max-width: 70%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .photo-info.visible { opacity: 1; }
+    .slideshow-img {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      object-fit: cover; transition: opacity 1.5s ease;
+    }
+    .slideshow-img.hidden { opacity: 0; }
+    .dynamic-content {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 120px;
+      background: #161b22; z-index: 3;
+      display: none; flex-direction: column; overflow-y: auto; color: #e6edf3;
+    }
+    .dynamic-content.active { display: flex; }
+    .dynamic-content iframe {
+      flex: 1; width: 100%; border: none; border-radius: 0;
+    }
+    .dynamic-close {
+      position: absolute; top: 8px; right: 8px;
+      width: 36px; height: 36px; background: rgba(0,0,0,0.6);
+      border: none; border-radius: 50%; color: #fff; font-size: 1.3rem;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 6;
+    }
+    .dynamic-body { padding: 10px 20px; font-size: 1.05rem; line-height: 1.6; white-space: pre-wrap; flex: 1; overflow-y: auto; }
+    .clock-overlay {
+      position: absolute; bottom: 0; left: 0; right: 0; z-index: 4;
+      padding: 16px 24px;
+      background: rgba(13,17,23,0.85);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .clock-time { font-size: 5.5rem; font-weight: 200; letter-spacing: -0.03em; color: #fff; line-height: 1; }
+    .clock-date { font-size: 1.5rem; font-weight: 400; color: rgba(255,255,255,0.9); margin-top: 4px; }
+    .clock-nameday { font-size: 1rem; font-weight: 300; color: rgba(255,255,255,0.6); margin-top: 2px; }
+
+    /* ===== WEATHER ===== */
+    .weather-now { display: flex; align-items: center; gap: 10px; padding: 6px 12px; }
+    .weather-icon { font-size: 2.4rem; }
+    .weather-temp-group { display: flex; align-items: baseline; gap: 6px; }
+    .weather-temp { font-size: 2.2rem; font-weight: 300; }
+    .weather-temp-range { font-size: 0.9rem; color: #8b949e; }
+    .weather-desc { font-size: 0.9rem; color: #8b949e; }
+    .weather-wind { font-size: 0.8rem; color: #8b949e; padding: 0 12px 2px; }
+    .weather-hours { display: flex; gap: 3px; padding: 4px 8px; overflow-x: auto; }
+    .wh-item {
+      flex: 1; min-width: 48px; text-align: center; padding: 4px 2px;
+      border-radius: 8px; background: rgba(255,255,255,0.06);
+    }
+    .wh-time { font-size: 0.75rem; color: #8b949e; }
+    .wh-icon { font-size: 1.2rem; margin: 1px 0; }
+    .wh-temp { font-size: 0.85rem; font-weight: 600; }
+    .weather-days { display: flex; flex-direction: column; gap: 0; padding: 2px 12px 6px; }
+    .wd-row {
+      display: flex; align-items: center; gap: 6px; font-size: 0.85rem;
+      padding: 2px 0; border-top: 1px solid rgba(255,255,255,0.06);
+    }
+    .wd-day { width: 70px; color: #8b949e; }
+    .wd-icon { font-size: 1rem; }
+    .wd-temp { font-weight: 600; min-width: 50px; }
+    .wd-desc { flex: 1; color: #8b949e; font-size: 0.75rem; }
+
+    /* ===== TRANSIT ===== */
+    .transit-list { padding: 2px 12px; }
+    .transit-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .transit-row:last-child { border-bottom: none; }
+    .transit-line {
+      background: #4caf50; color: #fff; font-weight: 700; font-size: 0.8rem;
+      width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+      border-radius: 6px;
+    }
+    .transit-dest { flex: 1; font-size: 0.9rem; }
+    .transit-time { font-size: 1.05rem; font-weight: 600; min-width: 55px; text-align: right; }
+    .transit-time.soon { color: #e67e22; }
+    .transit-deviation { font-size: 0.75rem; color: #e67e22; padding: 2px 12px; }
+
+    /* ===== MUSIC ===== */
+    .spotify-player { margin: 6px 12px; }
+    .sp-now {
+      display: flex; align-items: center; gap: 10px;
+      background: rgba(255,255,255,0.06); border-radius: 10px; padding: 10px;
+    }
+    .sp-art {
+      width: 52px; height: 52px; border-radius: 6px; background: #30363d;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.4rem; overflow: hidden; flex-shrink: 0;
+    }
+    .sp-art img { width: 100%; height: 100%; object-fit: cover; }
+    .sp-info { flex: 1; min-width: 0; }
+    .sp-title { font-size: 0.9rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sp-artist { font-size: 0.8rem; color: #8b949e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sp-controls { display: flex; align-items: center; gap: 6px; }
+    .sp-ctrl {
+      width: 32px; height: 32px; border: none; border-radius: 50%;
+      background: rgba(255,255,255,0.1); color: #e6edf3; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; font-size: 0.85rem;
+    }
+    .sp-ctrl:active { background: rgba(255,255,255,0.2); }
+    .sp-ctrl.sp-play { width: 38px; height: 38px; background: #1DB954; color: #fff; font-size: 1rem; }
+    .radio-player {
+      display: none; align-items: center; gap: 10px;
+      margin: 6px 12px; padding: 10px 12px;
+      background: rgba(255,255,255,0.06); border-radius: 10px; height: 80px;
+    }
+    .radio-player.active { display: flex; }
+    .radio-player-art {
+      width: 56px; height: 56px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.4rem; font-weight: 700; color: #fff;
+    }
+    .radio-player-info { flex: 1; }
+    .radio-player-name { font-size: 1rem; font-weight: 600; }
+    .radio-player-status { font-size: 0.8rem; color: #8b949e; }
+    .radio-play-btn {
+      width: 40px; height: 40px; border: none; border-radius: 50%;
+      background: #1DB954; color: #fff; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
+    }
+    .radio-play-btn:active { opacity: 0.8; }
+    .media-sources { display: flex; flex-wrap: wrap; gap: 5px; padding: 4px 12px; }
+    .media-src-btn {
+      flex: 1; min-width: 42px; padding: 7px 4px;
+      border-radius: 8px; border: 1px solid rgba(255,255,255,0.12);
+      background: #161b22; color: #e6edf3; cursor: pointer;
+      font-size: 0.8rem; font-weight: 600; text-align: center;
+    }
+    .media-src-btn:active, .media-src-btn.active { background: #1DB954; color: #fff; border-color: #1DB954; }
+    .account-switch {
+      font-size: 0.8rem; color: #1DB954; cursor: pointer;
+      padding: 5px 8px; text-align: center;
+      border: 1px solid #1DB954; border-radius: 6px; background: transparent;
+    }
+
+    /* ===== BIRTHDAY ===== */
+    .birthday-content {
+      padding: 8px 12px; font-size: 0.9rem; line-height: 1.4;
+    }
+    .birthday-today {
+      display: flex; align-items: center; gap: 8px; cursor: pointer;
+    }
+    .birthday-emoji { font-size: 1.6rem; }
+    .birthday-name { font-weight: 600; color: #f0883e; }
+    .birthday-expand-btn {
+      display: inline-block; margin-left: auto; padding: 3px 8px;
+      border-radius: 6px; border: 1px solid rgba(255,255,255,0.15);
+      background: transparent; color: #58a6ff; cursor: pointer;
+      font-size: 0.75rem;
+    }
+    .birthday-upcoming {
+      display: none; margin-top: 8px; padding-top: 6px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .birthday-upcoming.open { display: block; }
+    .birthday-upcoming-title { font-size: 0.75rem; color: #8b949e; text-transform: uppercase; margin-bottom: 4px; }
+    .birthday-row {
+      display: flex; align-items: center; gap: 6px; padding: 3px 0;
+      font-size: 0.85rem;
+    }
+    .birthday-row-date { color: #8b949e; min-width: 40px; }
+    .birthday-row-name { flex: 1; }
+    .birthday-row-age { color: #8b949e; font-size: 0.8rem; }
+    .clock-special { font-size: 1rem; font-weight: 500; color: #f0883e; margin-top: 2px; }
+
+    /* ===== DISCOVER / HISTORY ===== */
+    .discover-content { padding: 8px 12px; font-size: 0.9rem; line-height: 1.5; }
+    .discover-img {
+      width: 100%; height: 90px; object-fit: cover; border-radius: 8px;
+      margin-bottom: 6px; background: #30363d;
+    }
+    .discover-text { color: #c9d1d9; }
+    .discover-extra {
+      display: none; margin-top: 6px; padding-top: 6px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      color: #8b949e; font-size: 0.85rem; line-height: 1.5;
+    }
+    .discover-extra.open { display: block; }
+    .discover-readmore {
+      display: inline-block; margin-top: 6px; padding: 4px 10px;
+      border-radius: 6px; border: 1px solid rgba(255,255,255,0.15);
+      background: transparent; color: #58a6ff; cursor: pointer;
+      font-size: 0.8rem;
+    }
+    .discover-readmore:active { background: rgba(255,255,255,0.06); }
+    .discover-loading { color: #8b949e; font-size: 0.85rem; padding: 12px; text-align: center; }
+    .history-content { padding: 8px 12px; font-size: 0.9rem; line-height: 1.5; }
+    .history-year { font-size: 1.1rem; font-weight: 700; color: #58a6ff; }
+    .history-text { color: #c9d1d9; margin-top: 2px; }
+
+    /* ===== TIMERS ===== */
+    .timers-container { padding: 6px 10px; display: flex; flex-direction: column; gap: 6px; flex: 1; justify-content: center; }
+    .timer-item {
+      display: flex; align-items: center; gap: 8px;
+      background: rgba(255,255,255,0.06); border-radius: 12px; padding: 8px 10px;
+      flex: 1; min-height: 0;
+    }
+    .timer-ring { position: relative; flex-shrink: 0; }
+    .timer-ring svg { transform: rotate(-90deg); }
+    .timer-ring-bg { fill: none; stroke: rgba(255,255,255,0.15); stroke-width: 3; }
+    .timer-ring-fg { fill: none; stroke: #1DB954; stroke-width: 3; stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
+    .timer-ring-fg.done { stroke: #e74c3c; }
+    .timer-ring-text {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 600; font-variant-numeric: tabular-nums;
+    }
+    .timer-ring-text.done { color: #e74c3c; animation: blink 0.5s infinite; }
+    @keyframes blink { 50% { opacity: 0.3; } }
+    .timer-label { font-size: 0.8rem; color: #8b949e; }
+    .timer-btn {
+      width: 32px; height: 32px; border: none; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; font-size: 0.85rem;
+      background: rgba(255,255,255,0.1); color: #e6edf3;
+    }
+    .timer-btn:active { background: rgba(255,255,255,0.2); }
+    .timer-add {
+      display: flex; align-items: center; justify-content: center;
+      gap: 6px; padding: 10px; border-radius: 10px;
+      border: 2px dashed rgba(255,255,255,0.15); cursor: pointer; color: #8b949e; font-size: 0.9rem;
+      flex: 1; min-height: 0;
+    }
+    .timer-add:active { background: rgba(255,255,255,0.05); }
+    .timer-modal {
+      display: none; position: fixed; inset: 0; z-index: 100;
+      background: rgba(0,0,0,0.7); align-items: center; justify-content: center;
+    }
+    .timer-modal.active { display: flex; }
+    .timer-modal-content {
+      background: #1c2128; border-radius: 16px; padding: 20px; min-width: 260px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+    }
+    .timer-modal h3 { margin-bottom: 12px; font-size: 1.1rem; }
+    .timer-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .timer-preset {
+      padding: 12px; border-radius: 10px; background: rgba(255,255,255,0.06);
+      border: none; color: #e6edf3; cursor: pointer; font-size: 1rem; text-align: center;
+    }
+    .timer-preset:active { background: rgba(255,255,255,0.12); }
+    .timer-custom { grid-column: 1 / -1; display: flex; gap: 8px; margin-top: 4px; }
+    .timer-custom input {
+      flex: 1; padding: 10px; border-radius: 8px;
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #e6edf3;
+      font-size: 1rem; text-align: center;
+    }
+    .timer-custom button {
+      padding: 10px 18px; border-radius: 8px;
+      background: #1DB954; border: none; color: #fff; cursor: pointer; font-size: 1rem;
+    }
+
+    /* ===== CALENDAR BUTTON ===== */
+    .cal-btn {
+      background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 10px; color: rgba(255,255,255,0.7); padding: 8px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      margin-top: 4px; transition: all 0.2s; flex-shrink: 0;
+    }
+    .cal-btn:active { opacity: 0.7; }
+    /* Today events strip inside clock overlay */
+    .today-events {
+      display: flex; flex-direction: column; gap: 3px;
+      max-width: 160px; overflow: hidden;
+    }
+    .today-event-item {
+      display: flex; align-items: baseline; gap: 5px;
+      font-size: 0.78rem; color: rgba(255,255,255,0.7);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      justify-content: flex-end;
+    }
+    .today-event-time { color: #58a6ff; font-size: 0.75rem; flex-shrink: 0; }
+    .today-event-title { overflow: hidden; text-overflow: ellipsis; }
+    /* Calendar inside dynamic-content — no padding, full height iframe */
+    .dynamic-body.cal-active { padding: 0; overflow: hidden; }
+    .dynamic-body.cal-active iframe { width: 100%; height: 100%; border: none; display: block; }
+
+    /* ===== BLUETOOTH FAB ===== */
+    .fab-bt { background: #21262d; color: #8b949e; border: 1px solid #30363d; }
+    .fab-bt.connected { background: #1a472a; color: #3fb950; border-color: #3fb950; }
+    .fab-bt.connecting { background: #21262d; color: #3b82f6; border-color: #3b82f6; animation: pulse 1.5s infinite; }
+
+    /* ===== BOTTOM BUTTONS ===== */
+    .bottom-buttons {
+      position: fixed; bottom: 12px; right: 12px; z-index: 50;
+      display: flex; gap: 8px;
+    }
+    .fab {
+      width: 50px; height: 50px; border-radius: 50%;
+      border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.4); transition: all 0.3s;
+    }
+    .fab:active { transform: scale(0.95); }
+    .fab-voice { background: #21262d; color: #8b949e; border: 2px solid #30363d; }
+    .fab-voice.listening { background: #1DB954; color: #fff; border-color: #1DB954; animation: pulse 1.5s infinite; }
+    .fab-voice.processing { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+    .fab-voice.speaking { background: #8b5cf6; color: #fff; border-color: #8b5cf6; }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 15px rgba(29,185,84,0.3); }
+      50% { box-shadow: 0 0 25px rgba(29,185,84,0.5); }
+    }
+    .fab-apps { background: #21262d; color: #8b949e; border: 1px solid #30363d; }
+    .voice-transcript {
+      position: fixed; bottom: 72px; right: 12px; z-index: 50;
+      max-width: 300px; padding: 10px 14px;
+      background: #1c2128; border-radius: 12px; font-size: 0.9rem; line-height: 1.4;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.4); display: none;
+    }
+    .voice-transcript.active { display: block; }
+    .voice-transcript .user-text { color: #58a6ff; }
+    .voice-transcript .ai-text { color: #e6edf3; margin-top: 4px; }
+    .apps-modal {
+      display: none; position: fixed; inset: 0; z-index: 100;
+      background: rgba(0,0,0,0.7); align-items: center; justify-content: center;
+    }
+    .apps-modal.active { display: flex; }
+    .apps-grid {
+      background: #1c2128; border-radius: 16px; padding: 20px;
+      display: grid; grid-template-columns: repeat(3, 85px); gap: 16px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+    }
+    .app-item {
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      text-decoration: none; color: #e6edf3; cursor: pointer;
+    }
+    .app-icon {
+      width: 52px; height: 52px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center; font-size: 1.4rem; color: #fff;
+    }
+    .app-label { font-size: 0.8rem; color: #8b949e; }
+    .dim-overlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: rgba(0,0,0,0.45); pointer-events: none; opacity: 0; transition: opacity 2s;
+    }
+    .dim-overlay.active { opacity: 1; }
+    .loading { color: #8b949e; font-size: 0.9rem; padding: 12px; text-align: center; }
+    .error { color: #e74c3c; font-size: 0.85rem; padding: 8px 12px; }
+    ::-webkit-scrollbar { width: 3px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+  </style>
+</head>
+<body>
+  <div class="dashboard">
+    <!-- COL 1: Slideshow -->
+    <div class="panel panel-slideshow" id="slideshowPanel">
+      <img class="slideshow-img" id="img1" alt="">
+      <img class="slideshow-img hidden" id="img2" alt="">
+      <div class="photo-info" id="photoInfo"></div>
+      <div class="dynamic-content" id="dynamicContent">
+        <button class="dynamic-close" id="dynamicClose">&times;</button>
+        <div class="dynamic-body" id="dynamicBody"></div>
+      </div>
+      <div class="clock-overlay">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;">
+          <div style="flex:1;min-width:0;">
+            <div class="clock-time" id="clockTime">--:--</div>
+            <div class="clock-date" id="clockDate"></div>
+            <div class="clock-nameday" id="clockNameday"></div>
+            <div class="clock-special" id="clockSpecial"></div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;">
+            <button class="cal-btn" id="calBtn" title="Kalender">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+            </button>
+            <div class="today-events" id="todayEvents"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COL 2: Weather → Transit → Music → Radio -->
+    <div class="col-stack">
+      <div class="panel flex-grow" id="weatherPanel">
+        <div class="panel-header">Väder — Stureby</div>
+        <div class="weather-now" id="weatherNow"><div class="loading">Laddar väder...</div></div>
+        <div class="weather-wind" id="weatherWind"></div>
+        <div class="weather-hours" id="weatherHours"></div>
+        <div class="weather-days" id="weatherDays"></div>
+      </div>
+      <div class="panel" id="transitPanel">
+        <div class="panel-header">Tunnelbana — Stureby</div>
+        <div class="transit-list" id="transitList"><div class="loading">Laddar...</div></div>
+        <div class="transit-deviation" id="transitDeviation"></div>
+      </div>
+      <div class="panel" id="mediaPanel">
+        <div class="panel-header">Musik</div>
+        <!-- Spotify player -->
+        <div class="spotify-player" id="spotifyPlayer">
+          <div class="sp-now" id="spNow">
+            <div class="sp-art" id="spArt">&#9835;</div>
+            <div class="sp-info">
+              <div class="sp-title" id="spTitle">Inte inloggad</div>
+              <div class="sp-artist" id="spArtist">Tryck "Spotify" för att logga in</div>
+            </div>
+            <div class="sp-controls">
+              <button class="sp-ctrl" id="spPrev">&#9664;</button>
+              <button class="sp-ctrl sp-play" id="spToggle">&#9654;</button>
+              <button class="sp-ctrl" id="spNext">&#9654;&#9654;</button>
+            </div>
+          </div>
+        </div>
+        <!-- Radio player (hidden by default) -->
+        <div class="radio-player" id="radioPlayer">
+          <div class="radio-player-art" id="radioArt" style="background:#0065bd">P1</div>
+          <div class="radio-player-info">
+            <div class="radio-player-name" id="radioName">P1</div>
+            <div class="radio-player-status" id="radioStatus">Sveriges Radio</div>
+          </div>
+          <button class="radio-play-btn" id="radioPlayBtn">&#9654;</button>
+        </div>
+        <!-- Source buttons -->
+        <div class="media-sources">
+          <button class="media-src-btn active" data-type="spotify" data-name="Spotify">Spotify</button>
+          <button class="media-src-btn" data-type="spotify-ekot" data-name="Ekot">Ekot</button>
+          <button class="media-src-btn" data-type="radio" data-stream="https://live1.sr.se/p1-mp3-96" data-name="P1" data-color="#0065bd">P1</button>
+          <button class="media-src-btn" data-type="radio" data-stream="https://live1.sr.se/p3-mp3-96" data-name="P3" data-color="#c7420a">P3</button>
+          <button class="media-src-btn" data-type="radio" data-stream="https://live1.sr.se/p4sth-mp3-96" data-name="P4 Stockholm" data-color="#006838">P4</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- COL 3: Birthday → Discover → History → Timers -->
+    <div class="col-stack">
+      <div class="panel" id="birthdayPanel" style="display:none">
+        <div class="panel-header">Grattis!</div>
+        <div class="birthday-content" id="birthdayContent"></div>
+      </div>
+      <div class="panel" id="discoverPanel">
+        <div class="panel-header">Visste du att...</div>
+        <div class="discover-content" id="discoverContent">
+          <div class="discover-loading">Laddar...</div>
+        </div>
+      </div>
+      <div class="panel" id="historyPanel">
+        <div class="panel-header">Denna dag i historien</div>
+        <div class="history-content" id="historyContent">
+          <div class="discover-loading">Laddar...</div>
+        </div>
+      </div>
+      <div class="panel flex-grow" id="timerPanel">
+        <div class="panel-header">Timers</div>
+        <div class="timers-container" id="timersContainer">
+          <div class="timer-add" onclick="showTimerModal()">+ Ny timer</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom-buttons">
+    <button class="fab fab-bt" id="btBtn" title="Bluetooth Marshall">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"/>
+      </svg>
+    </button>
+    <button class="fab fab-apps" id="appsBtn" title="Appar">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+        <rect x="1" y="1" width="5" height="5" rx="1.5"/><rect x="8" y="1" width="5" height="5" rx="1.5"/>
+        <rect x="15" y="1" width="5" height="5" rx="1.5"/><rect x="1" y="8" width="5" height="5" rx="1.5"/>
+        <rect x="8" y="8" width="5" height="5" rx="1.5"/><rect x="15" y="8" width="5" height="5" rx="1.5"/>
+        <rect x="1" y="15" width="5" height="5" rx="1.5"/><rect x="8" y="15" width="5" height="5" rx="1.5"/>
+        <rect x="15" y="15" width="5" height="5" rx="1.5"/>
+      </svg>
+    </button>
+    <button class="fab fab-voice" id="voiceBtn" title="Tryck för att prata">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+        <line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
+      </svg>
+    </button>
+  </div>
+  <div class="voice-transcript" id="voiceTranscript">
+    <div class="user-text" id="voiceUserText"></div>
+    <div class="ai-text" id="voiceAiText"></div>
+  </div>
+  <div class="apps-modal" id="appsModal">
+    <div class="apps-grid">
+      <a class="app-item" href="https://viaplay.se" target="_blank"><div class="app-icon" style="background:#1a1a2e">V</div><div class="app-label">Viaplay</div></a>
+      <a class="app-item" href="https://www.svtplay.se" target="_blank"><div class="app-icon" style="background:#1b6b3a">SVT</div><div class="app-label">SVT Play</div></a>
+      <a class="app-item" href="https://www.youtube.com" target="_blank"><div class="app-icon" style="background:#c4302b">YT</div><div class="app-label">YouTube</div></a>
+      <a class="app-item" href="https://www.tv4play.se" target="_blank"><div class="app-icon" style="background:#c45200">TV4</div><div class="app-label">TV4 Play</div></a>
+      <a class="app-item" href="https://www.netflix.com" target="_blank"><div class="app-icon" style="background:#b81d24">N</div><div class="app-label">Netflix</div></a>
+      <a class="app-item" id="appClose" href="#"><div class="app-icon" style="background:#555">&times;</div><div class="app-label">Stäng</div></a>
+    </div>
+  </div>
+  <div class="timer-modal" id="timerModal">
+    <div class="timer-modal-content">
+      <h3>Välj tid</h3>
+      <div class="timer-presets">
+        <button class="timer-preset" data-seconds="60">1 min</button>
+        <button class="timer-preset" data-seconds="180">3 min</button>
+        <button class="timer-preset" data-seconds="300">5 min</button>
+        <button class="timer-preset" data-seconds="600">10 min</button>
+        <button class="timer-preset" data-seconds="900">15 min</button>
+        <button class="timer-preset" data-seconds="1800">30 min</button>
+        <div class="timer-custom">
+          <input type="number" id="customMinutes" placeholder="Minuter" min="1" max="999">
+          <button id="customTimerBtn">OK</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="dim-overlay" id="dimOverlay"></div>
+
+  <script>
+    const CONFIG = {
+      photos: [],
+      photoIntervalMs: 30000,
+      driveFolderId: '1FvmUMbIvo_KzXRvxQmmkWQWeTTWdj79t',
+      weatherLat: 59.275, weatherLon: 18.055,
+      weatherRefreshMs: 30 * 60 * 1000,
+      slSiteId: 9164, transitRefreshMs: 30000,
+      spotifyAccounts: [
+        { name: 'Niklas', uri: 'playlist/37i9dQZF1DX5Ejj0EkURtP' },
+        { name: 'Anders', uri: 'playlist/37i9dQZF1DXcBWIGoYBM5M' },
+      ],
+      currentAccount: 0,
+      aiProvider: 'gemini', geminiApiKey: 'AIzaSyAoxfPUpY9--DTRMiq34MWHU5qVUqF5LSU', geminiModel: 'gemini-2.5-flash',
+      voiceLanguage: 'sv-SE',
+      // Google Calendar embed URL – get from calendar.google.com → Settings → your calendar → "Integrate calendar" → embed URL
+      calendarUrl: 'https://calendar.google.com/calendar/embed?src=niklasjonsson89%40hotmail.com&ctz=Europe%2FStockholm',
+      // Google Calendar API key (for inline today-events). Get from console.cloud.google.com → enable Calendar API → Credentials → API key
+      googleCalendarApiKey: 'AIzaSyA1Y_B8KzYq1Xd2npfxiOT6c9Sr5pZXru0',
+      // Marshall Bluetooth device name (or prefix)
+      marshallName: 'Marshall',
+      dimStartHour: 22, dimEndHour: 7,
+      // Födelsedagar: { date:'dag/månad', name:'Namn', year:födelseår }
+      // Events: { date:'dag/månad', name:'Text', icon:'emoji', type:'event' }
+      birthdays: [
+        { date:'16/1', name:'Elise', year:2014 },
+        { date:'26/1', name:'Edin', year:1983 },
+        { date:'29/1', name:'Jerry', year:1951 },
+        { date:'29/1', name:'David B', year:1983 },
+        { date:'12/2', name:'Elvy', year:1947 },
+        { date:'14/2', name:'Alla hjärtans dag', icon:'❤️', type:'event' },
+        { date:'2/3', name:'Helena', year:1983 },
+        { date:'5/3', name:'Hanna R', year:1987 },
+        { date:'11/3', name:'Kalle', year:2013 },
+        { date:'18/3', name:'Tommy', year:1981 },
+        { date:'20/3', name:'Elsa', year:2006 },
+        { date:'21/3', name:'Degen', year:1989 },
+        { date:'10/4', name:'Ulf', year:1989 },
+        { date:'20/4', name:'12 år tillsammans', icon:'❤️', type:'event' },
+        { date:'3/5', name:'Anna J', year:1985 },
+        { date:'5/5', name:'Anna G', year:1983 },
+        { date:'7/5', name:'Linus', year:1989 },
+        { date:'18/5', name:'Kusin Malin', year:1983 },
+        { date:'21/5', name:'Axel', year:2016 },
+        { date:'21/5', name:'Sofia S', year:1976 },
+        { date:'26/5', name:'Miiken', year:1990 },
+        { date:'31/5', name:'Julie', year:2011 },
+        { date:'31/5', name:'Sia', year:2012 },
+        { date:'5/6', name:'Adde', year:1989 },
+        { date:'8/6', name:'Anders', year:1983 },
+        { date:'10/6', name:'Anna Å', year:1983 },
+        { date:'21/6', name:'Albin', year:1984 },
+        { date:'21/6', name:'Firren', year:1989 },
+        { date:'26/6', name:'Aina', year:1949 },
+        { date:'8/7', name:'Micke', year:1974 },
+        { date:'11/7', name:'Sam', year:2021 },
+        { date:'14/7', name:'Jonathan', year:1983 },
+        { date:'17/7', name:'Oscar', year:1983 },
+        { date:'19/7', name:'Niklas', year:1989 },
+        { date:'24/7', name:'Fredde', year:1989 },
+        { date:'24/7', name:'Wilma', year:2002 },
+        { date:'24/7', name:'Walter', year:2002 },
+        { date:'3/8', name:'Kusin Lars', year:1977 },
+        { date:'6/8', name:'Malin', year:1981 },
+        { date:'7/8', name:'Henrik', year:1980 },
+        { date:'10/8', name:'Felix', year:2023 },
+        { date:'13/8', name:'Madde Ö', year:1983 },
+        { date:'27/8', name:'Calle', year:1981 },
+        { date:'7/9', name:'Roland', year:1947 },
+        { date:'10/9', name:'Anneli', year:1975 },
+        { date:'14/9', name:'Anna CD', year:1983 },
+        { date:'26/9', name:'Herman', year:2009 },
+        { date:'27/9', name:'Siri', year:2010 },
+        { date:'12/10', name:'Sandra', year:1989 },
+        { date:'31/10', name:'Alfred', year:2010 },
+        { date:'12/11', name:'Siri', year:1990 },
+        { date:'19/11', name:'Elisabet', year:1952 },
+        { date:'28/11', name:'Maria', year:1972 },
+        { date:'8/12', name:'Karlsson', year:1989 },
+        { date:'11/12', name:'Andreas', year:1979 },
+        { date:'15/12', name:'Kusin Daniel', year:1986 },
+        { date:'21/12', name:'Kusin Isak', year:1995 },
+      ],
+    };
+
+    // ===== NAME DAYS =====
+    const ND = {
+      '1/1':'Nyårsdagen','2/1':'Svea, Svenja','3/1':'Alfred, Alfrida','4/1':'Rut, Ritva','5/1':'Hanna, Hannele',
+      '6/1':'Trettondedag jul','7/1':'August, Augusta','8/1':'Erland','9/1':'Gunnar, Gunder','10/1':'Sigurd, Sigbritt',
+      '11/1':'Jan, Jansen','12/1':'Frideborg, Fridolf','13/1':'Knut','14/1':'Felix, Felicia','15/1':'Laura, Lorentz',
+      '16/1':'Hjalmar, Helmer','17/1':'Anton, Tony','18/1':'Hilda, Hildur','19/1':'Henrik, Henry','20/1':'Fabian, Sebastian',
+      '21/1':'Agnes, Agneta','22/1':'Vincent, Viktor','23/1':'Frej, Freja','24/1':'Erika, Eira','25/1':'Paul, Pål',
+      '26/1':'Bodil, Boel','27/1':'Göte, Göta','28/1':'Karl, Karla','29/1':'Diana, Daniella','30/1':'Gunilla, Gunhild','31/1':'Ivar, Joar',
+      '1/2':'Max, Maximilian','2/2':'Kyndelsmässodagen','3/2':'Disa, Hjördis','4/2':'Ansgar, Anselm','5/2':'Agata, Agda',
+      '6/2':'Dorotea','7/2':'Rikard, Dick','8/2':'Berta, Bert','9/2':'Fanny, Franciska','10/2':'Iris',
+      '11/2':'Yngve, Inge','12/2':'Evelina, Evy','13/2':'Agne, Ove','14/2':'Valentin','15/2':'Sigfrid',
+      '16/2':'Julia, Julius','17/2':'Alexandra, Sandra','18/2':'Frida, Fritiof','19/2':'Gabriella, Ella','20/2':'Vivianne',
+      '21/2':'Hilding','22/2':'Pia','23/2':'Torsten, Torun','24/2':'Mattias, Mats','25/2':'Sigvard, Sivert',
+      '26/2':'Torgny, Torkel','27/2':'Lage, Laila','28/2':'Maria, Maja','29/2':'Skottdagen',
+      '1/3':'Albin, Elvira','2/3':'Ernst, Erna','3/3':'Gunborg, Gunvor','4/3':'Adrian, Adriana','5/3':'Tora, Tove',
+      '6/3':'Ebba, Ebbe','7/3':'Camilla','8/3':'Siv, Saga','9/3':'Torbjörn, Torleif','10/3':'Edla, Ada',
+      '11/3':'Edvin, Egon','12/3':'Viktoria','13/3':'Greger, Göran','14/3':'Matilda, Maud','15/3':'Kristoffer',
+      '16/3':'Herbert, Gilbert','17/3':'Gertrud','18/3':'Edvard, Edmund','19/3':'Josef, Josefina','20/3':'Joakim, Kim',
+      '21/3':'Bengt, Benny','22/3':'Kennet, Kent','23/3':'Gerda, Gerd','24/3':'Gabriel, Rafael','25/3':'Marie bebådelsedag',
+      '26/3':'Emanuel, Manne','27/3':'Rudolf, Ralf','28/3':'Malkolm, Morgan','29/3':'Jonas, Jens','30/3':'Holger','31/3':'Ester, Estrid',
+      '1/4':'Harald','2/4':'Gudmund','3/4':'Ferdinand, Nanna','4/4':'Marianne, Marlene','5/4':'Irene, Irja',
+      '6/4':'Vilhelm','7/4':'Irma','8/4':'Nadja, Tanja','9/4':'Otto, Ottilia','10/4':'Ingvar, Ingvor',
+      '11/4':'Ulf, Ylva','12/4':'Liv','13/4':'Artur, Douglas','14/4':'Tiburtius','15/4':'Olivia, Oliver',
+      '16/4':'Patrik, Patricia','17/4':'Elias, Elis','18/4':'Valdemar','19/4':'Olaus, Ola','20/4':'Amalia, Amelie',
+      '21/4':'Anneli, Annika','22/4':'Allan, Glenn','23/4':'Georg, Göran','24/4':'Vega','25/4':'Markus',
+      '26/4':'Teresia, Terese','27/4':'Engelbrekt','28/4':'Ture, Tyra','29/4':'Tyko','30/4':'Valborg, Maj',
+      '1/5':'Första maj','2/5':'Filip, Filippa','3/5':'John, Jane','4/5':'Monika, Mona','5/5':'Gotthard',
+      '6/5':'Marit, Rita','7/5':'Carina, Carita','8/5':'Åke','9/5':'Reidar','10/5':'Esbjörn',
+      '11/5':'Märta','12/5':'Charlotta, Lotta','13/5':'Linnea, Linn','14/5':'Halvard','15/5':'Sofia, Sonja',
+      '16/5':'Ronald, Ronny','17/5':'Rebecka, Ruben','18/5':'Erik','19/5':'Maj, Majken','20/5':'Karolina, Carola',
+      '21/5':'Konstantin','22/5':'Hemming, Henning','23/5':'Desideria','24/5':'Ivan, Vanja','25/5':'Urban',
+      '26/5':'Vilhelmina, Vilma','27/5':'Beda, Blenda','28/5':'Ingeborg','29/5':'Yvonne, Jeanette','30/5':'Vera, Veronika','31/5':'Petronella, Pernilla',
+      '1/6':'Gun, Gunnel','2/6':'Rutger, Roger','3/6':'Ingemar','4/6':'Solbritt, Solveig','5/6':'Bo, Boris',
+      '6/6':'Gustaf, Gösta','7/6':'Robert, Robin','8/6':'Eivor','9/6':'Börje, Birger','10/6':'Svante',
+      '11/6':'Bertil','12/6':'Eskil','13/6':'Aina','14/6':'Håkan','15/6':'Margit, Margot',
+      '16/6':'Axel','17/6':'Torborg','18/6':'Björn, Bjarne','19/6':'Germund','20/6':'Linda',
+      '21/6':'Alf, Alvar','22/6':'Paulina, Paula','23/6':'Adolf, Alice','24/6':'Midsommardagen','25/6':'David, Salomon',
+      '26/6':'Rakel, Lea','27/6':'Selma','28/6':'Leo','29/6':'Peter, Petra','30/6':'Elof, Leif',
+      '1/7':'Aron, Mirjam','2/7':'Rosa, Rosita','3/7':'Aurora','4/7':'Ulrika, Ulla','5/7':'Laila',
+      '6/7':'Esaias, Jessika','7/7':'Klas, Kaj','8/7':'Kjell','9/7':'Jörgen, Örjan','10/7':'Andre, Andrea',
+      '11/7':'Eleonora, Ellinor','12/7':'Herman','13/7':'Joel, Judit','14/7':'Folke','15/7':'Ragnhild',
+      '16/7':'Reinhold','17/7':'Bruno','18/7':'Fredrik, Fritz','19/7':'Sara, Sally','20/7':'Margareta, Greta',
+      '21/7':'Johanna','22/7':'Magdalena','23/7':'Emma, Emmy','24/7':'Kristina, Kerstin','25/7':'Jakob',
+      '26/7':'Jesper','27/7':'Marta, Moa','28/7':'Botvid','29/7':'Olof, Olov','30/7':'Algot','31/7':'Helena, Elin',
+      '1/8':'Per, Pär','2/8':'Karin, Kajsa','3/8':'Tage','4/8':'Arne, Arnold','5/8':'Ulrik',
+      '6/8':'Alfons, Inez','7/8':'Dennis, Denise','8/8':'Silvia, Sylvia','9/8':'Roland','10/8':'Lars, Lorentz',
+      '11/8':'Susanna, Sanna','12/8':'Klara','13/8':'Kaj','14/8':'Uno','15/8':'Stella, Estelle',
+      '16/8':'Brynolf','17/8':'Verner, Valter','18/8':'Ellen, Lena','19/8':'Magnus, Måns','20/8':'Bernhard, Bernt',
+      '21/8':'Jon','22/8':'Henrietta','23/8':'Signe','24/8':'Bartolomeus','25/8':'Lovisa, Louise',
+      '26/8':'Östen','27/8':'Rolf, Raoul','28/8':'Fatima, Leila','29/8':'Hans, Hampus','30/8':'Albert','31/8':'Arvid, Vidar',
+      '1/9':'Sam, Samuel','2/9':'Justus','3/9':'Alfhild, Alva','4/9':'Gisela','5/9':'Adela, Heidi',
+      '6/9':'Lena','7/9':'Regina, Roy','8/9':'Alma, Hulda','9/9':'Anita, Annette','10/9':'Tord',
+      '11/9':'Dagny','12/9':'Åsa','13/9':'Sture','14/9':'Ida','15/9':'Sigrid, Siri',
+      '16/9':'Dag, Daga','17/9':'Hildegard','18/9':'Orvar','19/9':'Fredrika','20/9':'Elise, Lisa',
+      '21/9':'Matteus','22/9':'Maurits','23/9':'Tekla, Tea','24/9':'Gerhard, Gert','25/9':'Tryggve',
+      '26/9':'Einar','27/9':'Dagmar, Rigmor','28/9':'Lennart','29/9':'Mikael, Mikaela','30/9':'Helge',
+      '1/10':'Ragnar','2/10':'Ludvig','3/10':'Evald','4/10':'Frans, Frank','5/10':'Bror',
+      '6/10':'Jenny, Jennifer','7/10':'Birgitta, Britta','8/10':'Nils','9/10':'Ingrid, Inger','10/10':'Harry',
+      '11/10':'Erling, Jarl','12/10':'Valfrid','13/10':'Berit, Birgit','14/10':'Stellan, Sten','15/10':'Hedvig',
+      '16/10':'Finn','17/10':'Antonia','18/10':'Lukas','19/10':'Tore, Tor','20/10':'Sibylla',
+      '21/10':'Ursula, Yrsa','22/10':'Marika','23/10':'Severin, Sören','24/10':'Evert','25/10':'Inga',
+      '26/10':'Amanda, Rasmus','27/10':'Sabina','28/10':'Simon, Simone','29/10':'Viola','30/10':'Elsa, Isabella','31/10':'Edit, Edith',
+      '1/11':'Allhelgonadagen','2/11':'Tobias','3/11':'Hubert, Hugo','4/11':'Sverker','5/11':'Eugen, Eugenia',
+      '6/11':'Gustav Adolf','7/11':'Ingegerd, Ingela','8/11':'Vendela','9/11':'Teodor','10/11':'Martin, Martina',
+      '11/11':'Mårten','12/11':'Konrad, Kurt','13/11':'Kristian','14/11':'Emil, Emilia','15/11':'Leopold',
+      '16/11':'Vibeke','17/11':'Naemi, Nancy','18/11':'Lillemor, Moa','19/11':'Elisabet, Lisbet','20/11':'Pontus',
+      '21/11':'Helga, Olga','22/11':'Cecilia','23/11':'Klemens','24/11':'Gudrun, Runa','25/11':'Katarina',
+      '26/11':'Linus, Love','27/11':'Astrid, Asta','28/11':'Malte','29/11':'Sune','30/11':'Andreas, Anders',
+      '1/12':'Oskar, Ossian','2/12':'Beata, Beatrice','3/12':'Lydia','4/12':'Barbara, Barbro','5/12':'Sven',
+      '6/12':'Nikolaus, Niklas','7/12':'Angela, Angelika','8/12':'Virginia','9/12':'Anna, Annie','10/12':'Malin',
+      '11/12':'Daniel','12/12':'Alexander','13/12':'Lucia','14/12':'Sten, Sixten','15/12':'Gottfrid',
+      '16/12':'Assar','17/12':'Stig, Staffan','18/12':'Abraham','19/12':'Isak','20/12':'Israel',
+      '21/12':'Tomas, Tom','22/12':'Natanael','23/12':'Adam, Eva','24/12':'Julafton','25/12':'Juldagen',
+      '26/12':'Stefan, Staffan','27/12':'Johannes, Johan','28/12':'Värnlösa barns dag','29/12':'Natalia',
+      '30/12':'Abel, Set','31/12':'Nyårsafton',
+    };
+    function getNameDay() { const n = new Date(); return ND[`${n.getDate()}/${n.getMonth()+1}`] || ''; }
+
+    // ===== SPECIAL DAYS =====
+    // Easter calculation (Anonymous Gregorian algorithm)
+    function getEaster(year) {
+      const a=year%19, b=Math.floor(year/100), c=year%100, d=Math.floor(b/4), e=b%4;
+      const f=Math.floor((b+8)/25), g=Math.floor((b-f+1)/3), h=(19*a+b-d-g+15)%30;
+      const i=Math.floor(c/4), k=c%4, l=(32+2*e+2*i-h-k)%7;
+      const m=Math.floor((a+11*h+22*l)/451), month=Math.floor((h+l-7*m+114)/31), day=((h+l-7*m+114)%31)+1;
+      return new Date(year, month-1, day);
+    }
+
+    function getSpecialDay(date) {
+      const d = date.getDate(), m = date.getMonth()+1, y = date.getFullYear();
+      const dow = date.getDay(); // 0=sön
+      const key = `${d}/${m}`;
+
+      // Fixed dates
+      const fixed = {
+        '1/1':'Nyårsdagen','6/1':'Trettondedag jul','14/2':'Alla hjärtans dag',
+        '8/3':'Internationella kvinnodagen','30/4':'Valborgsmässoafton','1/5':'Första maj',
+        '6/6':'Sveriges nationaldag','31/10':'Halloween',
+        '24/12':'Julafton','25/12':'Juldagen','26/12':'Annandag jul','31/12':'Nyårsafton',
+      };
+      if (fixed[key]) return fixed[key];
+
+      // Midsommarafton: fredag 19-25 juni
+      if (m===6 && d>=19 && d<=25 && dow===5) return 'Midsommarafton';
+      if (m===6 && d>=20 && d<=26 && dow===6) return 'Midsommardagen';
+
+      // Mors dag: sista söndagen i maj
+      if (m===5 && dow===0 && d > 24) return 'Mors dag';
+
+      // Fars dag: andra söndagen i november
+      if (m===11 && dow===0 && d>=8 && d<=14) return 'Fars dag';
+
+      // Kanelbullens dag
+      if (key==='4/10') return 'Kanelbullens dag';
+
+      // Easter-based
+      const easter = getEaster(y);
+      const eMs = easter.getTime();
+      const thisMs = new Date(y, m-1, d).getTime();
+      const diff = Math.round((thisMs - eMs) / 86400000);
+      if (diff === -47) return 'Fettisdagen';
+      if (diff === -2) return 'Långfredagen';
+      if (diff === -1) return 'Påskafton';
+      if (diff === 0) return 'Påskdagen';
+      if (diff === 1) return 'Annandag påsk';
+      if (diff === 39) return 'Kristi himmelsfärdsdag';
+      if (diff === 49) return 'Pingstdagen';
+
+      // Alla helgons dag: lördag 31 okt - 6 nov
+      if ((m===10 && d===31 && dow===6) || (m===11 && d<=6 && dow===6)) return 'Alla helgons dag';
+
+      return '';
+    }
+
+    // ===== CLOCK =====
+    const WEEKDAYS = ['Söndag','Måndag','Tisdag','Onsdag','Torsdag','Fredag','Lördag'];
+    const MONTHS = ['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december'];
+    function updateClock() {
+      const n = new Date();
+      document.getElementById('clockTime').textContent = `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`;
+      document.getElementById('clockDate').textContent = `${WEEKDAYS[n.getDay()]} ${n.getDate()} ${MONTHS[n.getMonth()]}`;
+      document.getElementById('clockNameday').textContent = getNameDay();
+      document.getElementById('clockSpecial').textContent = getSpecialDay(n);
+    }
+    updateClock(); setInterval(updateClock, 1000);
+
+    // ===== AUTO-DIM =====
+    function checkDim() {
+      const h = new Date().getHours();
+      const isDim = CONFIG.dimStartHour > CONFIG.dimEndHour
+        ? (h >= CONFIG.dimStartHour || h < CONFIG.dimEndHour)
+        : (h >= CONFIG.dimStartHour && h < CONFIG.dimEndHour);
+      document.getElementById('dimOverlay').classList.toggle('active', isDim);
+    }
+    checkDim(); setInterval(checkDim, 60000);
+
+    // ===== SLIDESHOW =====
+    let currentPhotoIndex = 0, activeImg = 1, slideshowTimer = null;
+    const img1 = document.getElementById('img1'), img2 = document.getElementById('img2');
+    const defPhotos = ['data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><rect fill="#1a1a2e" width="800" height="600"/><text x="400" y="300" fill="#555" font-size="22" text-anchor="middle" font-family="sans-serif">Lägg till bilder i Google Drive-mappen</text></svg>')];
+    let allPhotos = CONFIG.photos.length > 0 ? [...CONFIG.photos] : [...defPhotos];
+
+    function shufflePhotos(arr) { for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];} return arr; }
+
+    let photoMeta = []; // [{url, name, dateStr, lat, lng, place}]
+    const geocodeCache = {};
+
+    async function getPlace(lat, lng) {
+      const key = `${Math.round(lat*10)/10},${Math.round(lng*10)/10}`;
+      if (geocodeCache[key] !== undefined) return geocodeCache[key];
+      try {
+        const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=sv`, {headers:{'User-Agent':'HomeDashboard/1.0'}});
+        const d = await r.json();
+        const a = d.address || {};
+        const place = a.city || a.town || a.village || a.municipality || a.county || '';
+        geocodeCache[key] = place;
+        return place;
+      } catch(e) { geocodeCache[key] = ''; return ''; }
+    }
+
+    function parseExifDate(str) {
+      if (!str) return null;
+      const m = str.match(/(\d{4}):(\d{2}):(\d{2})/);
+      return m ? new Date(+m[1], +m[2]-1, +m[3]) : null;
+    }
+    function parseFilenameDate(name) {
+      const m = (name||'').match(/(\d{4})(\d{2})(\d{2})/);
+      return m ? new Date(+m[1], +m[2]-1, +m[3]) : null;
+    }
+    function formatSwedishDate(d) {
+      if (!d || isNaN(d)) return '';
+      return d.toLocaleDateString('sv-SE', {day:'numeric', month:'long', year:'numeric'});
+    }
+
+    async function showPhotoInfo(index) {
+      const el = document.getElementById('photoInfo');
+      const meta = photoMeta[index];
+      if (!meta) { el.classList.remove('visible'); return; }
+      const d = parseExifDate(meta.dateStr) || parseFilenameDate(meta.name);
+      const dateStr = formatSwedishDate(d);
+      let place = meta.place;
+      if (place === undefined && meta.lat && meta.lng) {
+        meta.place = await getPlace(meta.lat, meta.lng);
+        place = meta.place;
+      }
+      const parts = [];
+      if (place) parts.push('📍 ' + place);
+      if (dateStr) parts.push(dateStr);
+      if (parts.length) { el.textContent = parts.join('  •  '); el.classList.add('visible'); }
+      else { el.classList.remove('visible'); }
+    }
+
+    async function loadDrivePhotos() {
+      if (!CONFIG.driveFolderId || !CONFIG.googleCalendarApiKey) return;
+      try {
+        const q = encodeURIComponent(`'${CONFIG.driveFolderId}' in parents and mimeType contains 'image/' and trashed=false`);
+        const fields = 'files(id,name,imageMediaMetadata)';
+        const url = `https://www.googleapis.com/drive/v3/files?q=${q}&key=${CONFIG.googleCalendarApiKey}&fields=${fields}&pageSize=100&orderBy=createdTime desc`;
+        const data = await fetch(url).then(r => r.json());
+        console.log('Drive API response:', JSON.stringify(data).substring(0, 300));
+        if (data.files && data.files.length > 0) {
+          const meta = data.files.map(f => ({
+            url: `https://drive.google.com/thumbnail?id=${f.id}&sz=w1280`,
+            name: f.name,
+            dateStr: f.imageMediaMetadata ? f.imageMediaMetadata.time : null,
+            lat: f.imageMediaMetadata?.location?.latitude ?? null,
+            lng: f.imageMediaMetadata?.location?.longitude ?? null,
+            place: undefined
+          }));
+          photoMeta = shufflePhotos(meta);
+          allPhotos = photoMeta.map(m => m.url);
+          currentPhotoIndex = 0;
+          img1.src = allPhotos[0];
+          clearInterval(slideshowTimer);
+          if (allPhotos.length > 1) slideshowTimer = setInterval(showNextPhoto, CONFIG.photoIntervalMs);
+          showPhotoInfo(0);
+        }
+      } catch(e) { console.error('Drive photos failed:', e); }
+    }
+
+    function showNextPhoto() {
+      if (allPhotos.length <= 1) return;
+      currentPhotoIndex = (currentPhotoIndex + 1) % allPhotos.length;
+      const next = activeImg === 1 ? img2 : img1, curr = activeImg === 1 ? img1 : img2;
+      next.src = allPhotos[currentPhotoIndex]; next.classList.remove('hidden'); curr.classList.add('hidden');
+      activeImg = activeImg === 1 ? 2 : 1;
+      showPhotoInfo(currentPhotoIndex);
+    }
+    function showPrevPhoto() {
+      if (allPhotos.length <= 1) return;
+      currentPhotoIndex = (currentPhotoIndex - 1 + allPhotos.length) % allPhotos.length;
+      const next = activeImg === 1 ? img2 : img1, curr = activeImg === 1 ? img1 : img2;
+      next.src = allPhotos[currentPhotoIndex]; next.classList.remove('hidden'); curr.classList.add('hidden');
+      activeImg = activeImg === 1 ? 2 : 1;
+      showPhotoInfo(currentPhotoIndex);
+    }
+
+    img1.src = allPhotos[0];
+    if (allPhotos.length > 1) slideshowTimer = setInterval(showNextPhoto, CONFIG.photoIntervalMs);
+    loadDrivePhotos();
+    setInterval(loadDrivePhotos, 60 * 60 * 1000);
+    let touchStartX = 0;
+    document.getElementById('slideshowPanel').addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; });
+    document.getElementById('slideshowPanel').addEventListener('touchend', e => {
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      if (dx < -50) showNextPhoto();      // Swipe left → next
+      else if (dx > 50) showPrevPhoto();   // Swipe right → previous
+    });
+
+    // ===== DYNAMIC CONTENT =====
+    let calAutoCloseTimer = null;
+    document.getElementById('dynamicClose').addEventListener('click', () => {
+      clearTimeout(calAutoCloseTimer);
+      const body = document.getElementById('dynamicBody');
+      body.classList.remove('cal-active');
+      body.innerHTML = '';
+      document.getElementById('dynamicContent').classList.remove('active');
+    });
+    function showDynamicContent(html) {
+      document.getElementById('dynamicBody').innerHTML = html;
+      document.getElementById('dynamicContent').classList.add('active');
+    }
+    function showGoogleSearch(query) {
+      document.getElementById('dynamicBody').innerHTML = `<iframe src="https://www.google.com/search?igu=1&q=${encodeURIComponent(query)}" style="flex:1;width:100%;border:none;height:100%"></iframe>`;
+      document.getElementById('dynamicContent').classList.add('active');
+    }
+
+    // ===== WEATHER =====
+    const WI = {1:'☀️',2:'🌤️',3:'⛅',4:'🌥️',5:'☁️',6:'☁️',7:'🌫️',8:'🌦️',9:'🌧️',10:'🌧️',11:'⛈️',12:'🌨️',13:'🌨️',14:'🌨️',15:'🌨️',16:'🌨️',17:'🌨️',18:'🌧️',19:'🌧️',20:'🌧️',21:'⛈️',22:'🌨️',23:'🌨️',24:'🌨️',25:'❄️',26:'❄️',27:'❄️'};
+    const WT = {1:'Klart',2:'Nästan klart',3:'Växlande moln',4:'Halvklart',5:'Molnigt',6:'Mulet',7:'Dimma',8:'Lätta skurar',9:'Regnskurar',10:'Kraftiga skurar',11:'Åskväder',12:'Snöblandat',13:'Snöblandat',14:'Snöblandat',15:'Lätta snöbyar',16:'Snöbyar',17:'Kraftiga snöbyar',18:'Lätt regn',19:'Regn',20:'Kraftigt regn',21:'Åska',22:'Snöblandat',23:'Snöblandat',24:'Snöblandat',25:'Lätt snöfall',26:'Snöfall',27:'Kraftigt snöfall'};
+    function getP(p, n) { const f = p.find(x => x.name === n); return f ? f.values[0] : null; }
+
+    async function fetchWeather() {
+      try {
+        const r = await fetch(`https://opendata-download-metfcst.smhi.se/api/category/pmp3g/version/2/geotype/point/lon/${CONFIG.weatherLon}/lat/${CONFIG.weatherLat}/data.json`);
+        const d = await r.json(); renderWeather(d.timeSeries);
+      } catch(e) { document.getElementById('weatherNow').innerHTML = '<div class="error">Kunde inte ladda</div>'; }
+    }
+    function renderWeather(ts) {
+      const now = new Date();
+      let cl = ts[0]; for (const t of ts) { if (new Date(t.validTime) <= now) cl = t; else break; }
+      const temp = Math.round(getP(cl.parameters,'t')), wsymb = getP(cl.parameters,'Wsymb2'), wind = getP(cl.parameters,'ws');
+      const today = now.toDateString();
+      const tE = ts.filter(t => new Date(t.validTime).toDateString() === today);
+      const tT = tE.map(t => Math.round(getP(t.parameters,'t')));
+      const hi = tT.length ? Math.max(...tT) : temp, lo = tT.length ? Math.min(...tT) : temp;
+      document.getElementById('weatherNow').innerHTML = `<div class="weather-icon">${WI[wsymb]||'🌡️'}</div><div><div class="weather-temp-group"><div class="weather-temp">${temp}°</div><div class="weather-temp-range">(${lo}°/${hi}°)</div></div><div class="weather-desc">${WT[wsymb]||''}</div></div>`;
+      document.getElementById('weatherWind').textContent = `Vind: ${wind} m/s`;
+      const hO = [1,2,3,5];
+      document.getElementById('weatherHours').innerHTML = hO.map(o => {
+        const tgt = new Date(now.getTime()+o*3600000);
+        const hh = String(tgt.getHours()).padStart(2,'0') + ':00';
+        let b = ts[0]; for (const t of ts) { if (Math.abs(new Date(t.validTime)-tgt) < Math.abs(new Date(b.validTime)-tgt)) b=t; }
+        return `<div class="wh-item"><div class="wh-time">${hh}</div><div class="wh-icon">${WI[getP(b.parameters,'Wsymb2')]||'🌡️'}</div><div class="wh-temp">${Math.round(getP(b.parameters,'t'))}°</div></div>`;
+      }).join('');
+      const days = [];
+      for (let d=0;d<7;d++) {
+        const tg = new Date(now); tg.setDate(tg.getDate()+d);
+        const dE = ts.filter(t => new Date(t.validTime).toDateString() === tg.toDateString());
+        if (!dE.length) continue;
+        const dT = dE.map(t => Math.round(getP(t.parameters,'t')));
+        const mid = dE.find(t => { const h=new Date(t.validTime).getHours(); return h>=11&&h<=14; }) || dE[0];
+        const s = getP(mid.parameters,'Wsymb2');
+        days.push({name:d===0?'Idag':d===1?'Imorgon':WEEKDAYS[tg.getDay()],icon:WI[s]||'🌡️',hi:Math.max(...dT),lo:Math.min(...dT),desc:WT[s]||''});
+      }
+      document.getElementById('weatherDays').innerHTML = days.map(d =>
+        `<div class="wd-row"><span class="wd-day">${d.name}</span><span class="wd-icon">${d.icon}</span><span class="wd-temp">${d.lo}°/${d.hi}°</span><span class="wd-desc">${d.desc}</span></div>`
+      ).join('');
+    }
+    fetchWeather(); setInterval(fetchWeather, CONFIG.weatherRefreshMs);
+
+    // ===== TRANSIT =====
+    async function fetchTransit() {
+      try {
+        const r = await fetch(`https://transport.integration.sl.se/v1/sites/${CONFIG.slSiteId}/departures`);
+        const d = await r.json(); renderTransit(d.departures||[]);
+      } catch(e) { document.getElementById('transitList').innerHTML = '<div class="error">Kunde inte ladda</div>'; }
+    }
+    function renderTransit(deps) {
+      const nb = deps.filter(d => d.line&&d.line.id==19&&d.destination&&!d.destination.toLowerCase().includes('hagsätra')).slice(0,4);
+      if (!nb.length) { document.getElementById('transitList').innerHTML = '<div class="loading">Inga avgångar</div>'; return; }
+      document.getElementById('transitList').innerHTML = nb.map(d => {
+        const disp = d.display||'?';
+        const soon = disp.includes('Nu')||(parseInt(disp)<=3&&!isNaN(parseInt(disp)));
+        return `<div class="transit-row"><div class="transit-line">19</div><div class="transit-dest">${d.destination||'T-centralen'}</div><div class="transit-time ${soon?'soon':''}">${disp}</div></div>`;
+      }).join('');
+      const devs = [...new Set(deps.flatMap(d => (d.deviations||[]).map(x => x.message)).filter(Boolean))];
+      document.getElementById('transitDeviation').textContent = devs.join(' | ');
+    }
+    fetchTransit(); setInterval(fetchTransit, CONFIG.transitRefreshMs);
+
+    // ===== SPOTIFY WEB API + PLAYBACK =====
+    const SPOTIFY_CLIENT_ID = '6576fae87ab646b09d80122c49d373d2';
+    const SPOTIFY_REDIRECT = 'https://ekholmniklas.github.io/dashboard/callback.html';
+    const SPOTIFY_SCOPES = 'streaming user-read-playback-state user-modify-playback-state user-read-currently-playing';
+    let spotifyToken = localStorage.getItem('spotify_token') || null;
+    let spotifyTokenTime = parseInt(localStorage.getItem('spotify_token_time')) || 0;
+    let spotifyPlayer = null;
+    let spotifyDeviceId = null;
+    let spotifyPlaying = false;
+
+    // Check if token expired (1 hour)
+    function spotifyTokenValid() {
+      return spotifyToken && (Date.now() - spotifyTokenTime < 3500000);
+    }
+
+    async function spotifyLogin() {
+      // PKCE: generate code verifier and challenge
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      const verifier = Array.from(crypto.getRandomValues(new Uint8Array(64)), b => chars[b % chars.length]).join('');
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+      const challenge = btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+
+      localStorage.setItem('spotify_pkce_verifier', verifier);
+
+      const url = `https://accounts.spotify.com/authorize?client_id=${SPOTIFY_CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(SPOTIFY_REDIRECT)}&scope=${encodeURIComponent(SPOTIFY_SCOPES)}&code_challenge_method=S256&code_challenge=${challenge}&state=${encodeURIComponent(verifier)}`;
+      const w = window.open(url, 'spotify_login', 'width=500,height=750');
+
+      // Listen for callback message
+      window.addEventListener('message', (e) => {
+        if (e.data && e.data.type === 'spotify_token') {
+          spotifyToken = e.data.token;
+          spotifyTokenTime = Date.now();
+          localStorage.setItem('spotify_token', spotifyToken);
+          localStorage.setItem('spotify_token_time', spotifyTokenTime);
+          initSpotifySDK();
+          updateSpotifyUI();
+        }
+      });
+      // Fallback: poll localStorage (for mobile)
+      const checkStorage = setInterval(() => {
+        const t = localStorage.getItem('spotify_token');
+        const tt = parseInt(localStorage.getItem('spotify_token_time')) || 0;
+        if (t && tt > spotifyTokenTime) {
+          spotifyToken = t; spotifyTokenTime = tt;
+          clearInterval(checkStorage);
+          initSpotifySDK();
+          updateSpotifyUI();
+        }
+      }, 1000);
+      setTimeout(() => clearInterval(checkStorage), 120000);
+    }
+
+    async function spotifyAPI(endpoint, method, body) {
+      if (!spotifyTokenValid()) return null;
+      const opts = { method: method || 'GET', headers: { 'Authorization': `Bearer ${spotifyToken}` } };
+      if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+      try {
+        const r = await fetch(`https://api.spotify.com/v1${endpoint}`, opts);
+        if (r.status === 204) return {};
+        if (r.ok) return await r.json();
+        if (r.status === 401) { spotifyToken = null; localStorage.removeItem('spotify_token'); updateSpotifyUI(); }
+        return null;
+      } catch(e) { return null; }
+    }
+
+    function initSpotifySDK() {
+      if (document.getElementById('spotify-sdk-script')) return;
+      const s = document.createElement('script');
+      s.id = 'spotify-sdk-script';
+      s.src = 'https://sdk.scdn.co/spotify-player.js';
+      document.body.appendChild(s);
+      window.onSpotifyWebPlaybackSDKReady = () => {
+        spotifyPlayer = new Spotify.Player({
+          name: 'Dashboard',
+          getOAuthToken: cb => { cb(spotifyToken); },
+          volume: 0.8,
+        });
+        spotifyPlayer.addListener('ready', ({ device_id }) => {
+          spotifyDeviceId = device_id;
+          // Transfer playback to this device
+          spotifyAPI('/me/player', 'PUT', { device_ids: [device_id] });
+        });
+        spotifyPlayer.addListener('player_state_changed', state => {
+          if (!state) return;
+          spotifyPlaying = !state.paused;
+          const track = state.track_window.current_track;
+          document.getElementById('spTitle').textContent = track.name;
+          document.getElementById('spArtist').textContent = track.artists.map(a => a.name).join(', ');
+          document.getElementById('spArt').innerHTML = track.album.images.length
+            ? `<img src="${track.album.images[0].url}" alt="">`
+            : '&#9835;';
+          document.getElementById('spToggle').innerHTML = spotifyPlaying ? '&#9724;' : '&#9654;';
+        });
+        spotifyPlayer.connect();
+      };
+    }
+
+    async function updateSpotifyUI() {
+      if (!spotifyTokenValid()) {
+        document.getElementById('spTitle').textContent = 'Inte inloggad';
+        document.getElementById('spArtist').textContent = 'Tryck "Spotify" för att logga in';
+        document.getElementById('spArt').innerHTML = '&#9835;';
+        return;
+      }
+      // Get current playback
+      const pb = await spotifyAPI('/me/player');
+      if (pb && pb.item) {
+        document.getElementById('spTitle').textContent = pb.item.name;
+        document.getElementById('spArtist').textContent = pb.item.artists.map(a => a.name).join(', ');
+        if (pb.item.album && pb.item.album.images.length) {
+          document.getElementById('spArt').innerHTML = `<img src="${pb.item.album.images[0].url}" alt="">`;
+        }
+        spotifyPlaying = pb.is_playing;
+        document.getElementById('spToggle').innerHTML = spotifyPlaying ? '&#9724;' : '&#9654;';
+      }
+    }
+
+    async function spotifyTogglePlay() {
+      if (!spotifyTokenValid()) { spotifyLogin(); return; }
+      if (spotifyPlaying) { await spotifyAPI('/me/player/pause', 'PUT'); }
+      else { await spotifyAPI('/me/player/play', 'PUT'); }
+      spotifyPlaying = !spotifyPlaying;
+      document.getElementById('spToggle').innerHTML = spotifyPlaying ? '&#9724;' : '&#9654;';
+    }
+
+    async function spotifyNext() { if (spotifyTokenValid()) await spotifyAPI('/me/player/next', 'POST'); }
+    async function spotifyPrev() { if (spotifyTokenValid()) await spotifyAPI('/me/player/previous', 'POST'); }
+
+    async function spotifySearch(query) {
+      if (!spotifyTokenValid()) { spotifyLogin(); return; }
+      const r = await spotifyAPI(`/search?q=${encodeURIComponent(query)}&type=track&limit=1`);
+      if (r && r.tracks && r.tracks.items.length > 0) {
+        const track = r.tracks.items[0];
+        await spotifyAPI('/me/player/play', 'PUT', { uris: [track.uri] });
+        return `${track.name} — ${track.artists[0].name}`;
+      }
+      return null;
+    }
+
+    async function spotifyPlayEkot() {
+      if (!spotifyTokenValid()) { spotifyLogin(); return; }
+      // Play Ekot podcast (latest episode)
+      const r = await spotifyAPI('/shows/0p92p8lG4Gz8fhZvcwSMxD/episodes?limit=1&market=SE');
+      if (r && r.items && r.items.length > 0) {
+        await spotifyAPI('/me/player/play', 'PUT', { uris: [r.items[0].uri] });
+      }
+    }
+
+    // Spotify controls
+    document.getElementById('spToggle').addEventListener('click', spotifyTogglePlay);
+    document.getElementById('spNext').addEventListener('click', spotifyNext);
+    document.getElementById('spPrev').addEventListener('click', spotifyPrev);
+
+    // Init on load if token exists
+    if (spotifyTokenValid()) { initSpotifySDK(); updateSpotifyUI(); }
+    // Refresh playback info periodically
+    setInterval(() => { if (spotifyTokenValid()) updateSpotifyUI(); }, 15000);
+
+    // ===== RADIO =====
+    let radioAudio = null;
+    let radioPlaying = false;
+    let activeMediaBtn = null;
+    const radioPlayer = document.getElementById('radioPlayer');
+    const radioPlayBtn = document.getElementById('radioPlayBtn');
+
+    function stopRadio() {
+      if (radioAudio) { radioAudio.pause(); radioAudio.src = ''; radioAudio.load(); radioAudio = null; }
+      radioPlaying = false;
+      radioPlayBtn.innerHTML = '&#9654;';
+      document.getElementById('radioStatus').textContent = 'Stoppad';
+    }
+
+    function playRadio(url) {
+      stopRadio();
+      radioAudio = new Audio(url);
+      radioAudio.play().then(() => {
+        radioPlaying = true;
+        radioPlayBtn.innerHTML = '&#9724;';
+        document.getElementById('radioStatus').textContent = 'Spelar nu';
+      }).catch(() => {
+        document.getElementById('radioStatus').textContent = 'Kunde inte spela';
+      });
+    }
+
+    function selectMediaSource(btn) {
+      document.querySelectorAll('.media-src-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeMediaBtn = btn;
+
+      if (btn.dataset.type === 'spotify') {
+        stopRadio();
+        radioPlayer.classList.remove('active');
+        document.getElementById('spotifyPlayer').style.display = '';
+        if (!spotifyTokenValid()) { spotifyLogin(); }
+        else { spotifyAPI('/me/player/play', 'PUT').catch(()=>{}); updateSpotifyUI(); }
+      } else if (btn.dataset.type === 'spotify-ekot') {
+        stopRadio();
+        radioPlayer.classList.remove('active');
+        document.getElementById('spotifyPlayer').style.display = '';
+        if (!spotifyTokenValid()) { spotifyLogin(); }
+        else { spotifyPlayEkot(); }
+      } else if (btn.dataset.type === 'radio') {
+        if (spotifyPlaying) spotifyAPI('/me/player/pause', 'PUT').catch(()=>{});
+        document.getElementById('spotifyPlayer').style.display = 'none';
+        const color = btn.dataset.color || '#0065bd';
+        document.getElementById('radioArt').textContent = btn.textContent;
+        document.getElementById('radioArt').style.background = color;
+        document.getElementById('radioName').textContent = btn.dataset.name;
+        document.getElementById('radioStatus').textContent = 'Ansluter...';
+        radioPlayer.classList.add('active');
+        playRadio(btn.dataset.stream);
+      }
+    }
+
+    radioPlayBtn.addEventListener('click', () => {
+      if (!activeMediaBtn || activeMediaBtn.dataset.type !== 'radio') return;
+      if (radioPlaying) stopRadio(); else playRadio(activeMediaBtn.dataset.stream);
+    });
+
+    document.querySelectorAll('.media-src-btn').forEach(btn => {
+      btn.addEventListener('click', () => selectMediaSource(btn));
+    });
+
+    function switchToSpotify() {
+      const btn = document.querySelector('.media-src-btn[data-type="spotify"]');
+      if (btn) selectMediaSource(btn);
+    }
+
+    // ===== BIRTHDAYS =====
+    function calcAge(year, refDate) {
+      if (!year) return null;
+      const bd = refDate || new Date();
+      return bd.getFullYear() - year;
+    }
+
+    function parseDateKey(d) {
+      const [day, month] = d.split('/').map(Number);
+      return { day, month };
+    }
+
+    function getUpcomingBirthdays(count) {
+      const now = new Date();
+      const today = now.getDate(), thisMonth = now.getMonth() + 1;
+      const withSort = CONFIG.birthdays.map(b => {
+        const { day, month } = parseDateKey(b.date);
+        let daysUntil = new Date(now.getFullYear(), month - 1, day) - new Date(now.getFullYear(), thisMonth - 1, today);
+        if (daysUntil < 0) daysUntil += 365 * 86400000; // next year
+        if (daysUntil === 0) daysUntil = 0.1; // today but still show
+        return { ...b, day, month, daysUntil };
+      });
+      // Exclude today's entries, sort by soonest
+      return withSort
+        .filter(b => {
+          const isToday = b.day === today && b.month === thisMonth;
+          return !isToday;
+        })
+        .sort((a, b) => a.daysUntil - b.daysUntil)
+        .slice(0, count);
+    }
+
+    let birthdayExpandTimer = null;
+
+    function checkBirthdays() {
+      const now = new Date();
+      const key = `${now.getDate()}/${now.getMonth()+1}`;
+      const todayEntries = CONFIG.birthdays.filter(b => b.date === key);
+      const panel = document.getElementById('birthdayPanel');
+      const content = document.getElementById('birthdayContent');
+
+      // Always show panel (for "visa kommande" even if no birthday today)
+      panel.style.display = '';
+
+      let todayHtml = '';
+      if (todayEntries.length > 0) {
+        const parts = todayEntries.map(b => {
+          const icon = b.icon || '🎂';
+          const age = b.year ? ` ${calcAge(b.year)}` : '';
+          const ageText = b.type === 'event' ? '' : ` fyller${age} år!`;
+          return `<span class="birthday-emoji">${icon}</span> <span class="birthday-name">${b.name}</span>${ageText}`;
+        });
+        todayHtml = `<div class="birthday-today" onclick="toggleBirthdayExpand()">${parts.join('<br>')}<button class="birthday-expand-btn" id="bdExpandBtn">Kommande</button></div>`;
+      } else {
+        todayHtml = `<div class="birthday-today" onclick="toggleBirthdayExpand()" style="color:#8b949e">Inga födelsedagar idag <button class="birthday-expand-btn" id="bdExpandBtn">Kommande</button></div>`;
+      }
+
+      // Upcoming
+      const upcoming = getUpcomingBirthdays(5);
+      const MONTHS_SHORT = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+      const upcomingHtml = upcoming.map(b => {
+        const age = b.year ? calcAge(b.year, new Date(now.getFullYear(), b.month - 1, b.day)) : '';
+        const ageText = (b.type === 'event' || !age) ? '' : `${age} år`;
+        const icon = b.icon || '🎂';
+        return `<div class="birthday-row"><span class="birthday-row-date">${b.day} ${MONTHS_SHORT[b.month-1]}</span><span>${icon}</span><span class="birthday-row-name">${b.name}</span><span class="birthday-row-age">${ageText}</span></div>`;
+      }).join('');
+
+      content.innerHTML = todayHtml + `<div class="birthday-upcoming" id="bdUpcoming"><div class="birthday-upcoming-title">Kommande födelsedagar</div>${upcomingHtml}</div>`;
+    }
+
+    function toggleBirthdayExpand() {
+      const el = document.getElementById('bdUpcoming');
+      const btn = document.getElementById('bdExpandBtn');
+      if (!el) return;
+      const isOpen = el.classList.toggle('open');
+      if (btn) btn.textContent = isOpen ? 'Stäng' : 'Kommande';
+      if (birthdayExpandTimer) clearTimeout(birthdayExpandTimer);
+      if (isOpen) {
+        birthdayExpandTimer = setTimeout(() => {
+          el.classList.remove('open');
+          if (btn) btn.textContent = 'Kommande';
+        }, 60000);
+      }
+    }
+
+    checkBirthdays();
+
+    // ===== DISCOVER: "Visste du att..." =====
+    const FUN_FACTS = [
+      { cat:'Kroppen', text:'Hjärnan förbrukar ca 20% av kroppens energi, trots att den bara väger ~2%.', extra:'Hjärnan behöver konstant energi för att upprätthålla elektriska signaler mellan 86 miljarder nervceller. Även när du sover arbetar hjärnan hårt — den rensar ut avfallsprodukter och konsoliderar minnen. Barn under 5 år kan använda upp till 50% av sin energi på hjärnan.', img:'https://images.unsplash.com/photo-1559757175-5700dde675bc?w=400&h=200&fit=crop' },
+      { cat:'Kroppen', text:'Dina ben är starkare än stål i samma vikt.', extra:'Benvävnad tål ett tryck på ca 170 MPa — ungefär lika starkt som stål, men mycket lättare. Skelettet förnyas ständigt: var tionde år har du i princip ett helt nytt skelett. Astronauter förlorar benmassa i rymden eftersom kroppen inte behöver stödja sig mot gravitationen.', img:'https://images.unsplash.com/photo-1530497610245-94d3c16cda28?w=400&h=200&fit=crop' },
+      { cat:'Kroppen', text:'Du är lite längre på morgonen än på kvällen.', extra:'Under natten, när du ligger ner, expanderar broskskivorna mellan ryggkotorna eftersom de inte belastas av gravitationen. Du kan vara upp till 2 cm längre på morgonen. Under dagen komprimeras skivorna igen av din kroppsvikt.', img:'https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=400&h=200&fit=crop' },
+      { cat:'Kroppen', text:'Din kropp byter ut nästan alla celler på 7–10 år.', extra:'Tarmcellerna byts ut var 3–5 dag, hudcellerna var 2–3 vecka, och röda blodkroppar lever i ca 120 dagar. Hjärnceller och ögats lins är undantag — många av dem har du hela livet. Levern regenererar sig helt på ungefär ett år.', img:'https://images.unsplash.com/photo-1532187863486-abf9dbad1b69?w=400&h=200&fit=crop' },
+      { cat:'Djur', text:'Kor har bästa vänner och blir stressade när de skiljs åt.', extra:'Forskning vid University of Northampton visade att kor har en lägre hjärtfrekvens och kortisol-nivå när de är med sin bästa vän. De bildar starka sociala band och kan bli deprimerade vid separation. Kor kan också känna igen över 100 andra kor i ansiktet.', img:'https://images.unsplash.com/photo-1570042225831-d98fa7577f1e?w=400&h=200&fit=crop' },
+      { cat:'Djur', text:'Humlan flyger trots att den "inte borde kunna" — enligt gammal aerodynamik.', extra:'Myten kommer från en beräkning på 1930-talet som använde flygplansvinge-fysik på humlans vingar. I verkligheten rör humlan vingarna i en komplex 8-rörelse som skapar virvelströmmar. Forskare vid Caltech filmade detta med höghastighetskameror 2005.', img:'https://images.unsplash.com/photo-1558642452-9d2a7deb7f62?w=400&h=200&fit=crop' },
+      { cat:'Natur', text:'Träd "pratar" via svampnätverk i marken — "Wood Wide Web".', extra:'Mykorrhiza-svampar bildar nätverk mellan trädröttter och kan transportera socker, vatten och varningssignaler. Ett moderträd kan skicka näring till sina plantor i skuggan. Ekologerna Suzanne Simard upptäckte att ett enda träd kan vara kopplat till hundratals andra.', img:'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=400&h=200&fit=crop' },
+      { cat:'Djur', text:'Valar har egna dialekter beroende på var de lever.', extra:'Kaskeloter i Karibien har annorlunda klickserier än de i Stilla havet. Knölvalar lär sig nya "sånger" som sprids som mode genom populationen — ibland korsar de hela Stilla havet. En vals sång kan höras upp till 3000 km bort.', img:'https://images.unsplash.com/photo-1568430462989-44163eb1752f?w=400&h=200&fit=crop' },
+      { cat:'Rymden', text:'En dag på Venus är längre än ett år på Venus!', extra:'Venus roterar extremt långsamt (243 jorddygn per varv) men kretsar runt solen på bara 225 jorddygn. Dessutom roterar den baklänges jämfört med de flesta planeter — solen "går upp" i väster. Ytan är 462°C och trycket är 90 gånger jordens.', img:'https://images.unsplash.com/photo-1614732414444-096e5f1122d5?w=400&h=200&fit=crop' },
+      { cat:'Natur', text:'Det finns fler träd på jorden (~3 biljoner) än stjärnor i Vintergatan.', extra:'En studie från Yale 2015 uppskattade 3,04 biljoner träd — 422 per person. Vintergatan har uppskattningsvis 100–400 miljarder stjärnor. Trots detta förlorar vi ca 10 miljarder träd per år genom avskogning, mer än vi planterar.', img:'https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?w=400&h=200&fit=crop' },
+      { cat:'Historia', text:'Kleopatra levde närmare månlandningen i tid än pyramidernas byggande.', extra:'Cheopspyramiden byggdes ca 2560 f.Kr., Kleopatra dog 30 f.Kr., och Apollo 11 landade 1969. Det skiljer 2530 år mellan pyramiderna och Kleopatra, men bara 1999 år mellan Kleopatra och månlandningen. Pyramiderna var redan antika när hon levde!', img:'https://images.unsplash.com/photo-1539650116574-8efeb43e2750?w=400&h=200&fit=crop' },
+      { cat:'Historia', text:'Vikingar hade katter ombord på sina skepp.', extra:'Katter skyddade matförråden från möss och råttor. DNA-analys visar att vikingarna spred kattarten från Egypten till Nordeuropa. Freya, fruktbarhetens gudinna, hade en vagn dragen av två stora katter. Skeppskatter var så värderade att de ärvdes.', img:'https://images.unsplash.com/photo-1574158622682-e40e69881006?w=400&h=200&fit=crop' },
+      { cat:'Historia', text:'Sverige hade vänstertrafik ända till 1967.', extra:'Dagen H (Högertrafikomläggningen) ägde rum 3 september 1967, kl 04:50. All trafik stoppades, och bilar som stod på vänster sida fick köra över till höger. Det var den största logistiska operationen i Sveriges historia. Ironiskt nog ägde färre olyckor rum dagarna efter bytet.', img:'https://images.unsplash.com/photo-1449824913935-59a10b8d2000?w=400&h=200&fit=crop' },
+      { cat:'Teknik', text:'Din mobil är kraftfullare än datorerna som tog oss till månen.', extra:'Apollo 11:s dator hade 74 KB minne och körde på 0,043 MHz. En modern smartphone har miljontals gånger mer processorkraft. Ändå navigerade NASA-datorn tre astronauter säkert till månen och tillbaka med extremt pålitlig kod — bara 145 000 rader.', img:'https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=400&h=200&fit=crop' },
+      { cat:'Teknik', text:'Mikrovågsugnen uppfanns av en slump.', extra:'1945 stod ingenjören Percy Spencer nära en magnetron (radarsändare) och märkte att chokladkakan i hans ficka smälte. Han testade popcornkärnor — de poppade! Den första mikrovågsugnen "Radarange" (1947) var 1,8 m hög och vägde 340 kg.', img:'https://images.unsplash.com/photo-1585659722983-3a675dabf23d?w=400&h=200&fit=crop' },
+      { cat:'Teknik', text:'Det finns fler möjliga schackpartier än atomer i universum.', extra:'Shannon-talet uppskattar antalet möjliga schackpartier till ca 10^120. Det observerbara universumets atomer är "bara" ca 10^80. Efter bara 3 drag vardera finns redan över 9 miljoner möjliga ställningar. Schack är fortfarande olöst av datorer.', img:'https://images.unsplash.com/photo-1529699211952-734e80c4d42b?w=400&h=200&fit=crop' },
+      { cat:'Mat', text:'Bananer är tekniskt sett bär — men jordgubbar är det inte!', extra:'Botaniskt sett är ett bär en frukt som utvecklas från en enda blommas fruktämne och har frön inbäddade i fruktköttet. Bananer, avokado och aubergine räknas som bär. Jordgubbar, hallon och björnbär är "samfrukter" — varje litet prick är en egen liten frukt.', img:'https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=400&h=200&fit=crop' },
+      { cat:'Mat', text:'Honung blir aldrig gammal — den håller i tusentals år!', extra:'I egyptiska gravar har man hittat 3000 år gammal honung som fortfarande var ätbar. Honungens låga vattenhalt, höga surhet och naturliga väteperoxid gör den närmast bakteriefri. Egyptierna använde den också som sårförband.', img:'https://images.unsplash.com/photo-1587049352846-4a222e784d38?w=400&h=200&fit=crop' },
+      { cat:'Mat', text:'Morötter var ursprungligen lila!', extra:'De första odlade morötterna i Afghanistan och Persien var lila och gula. Orange morötter odlades fram i Nederländerna på 1600-talet, troligen som hyllning till Vilhelm av Oranien. Idag odlas fortfarande lila morötter — de har extra antocyaniner (antioxidanter).', img:'https://images.unsplash.com/photo-1598170845058-32b9d6a5da37?w=400&h=200&fit=crop' },
+      { cat:'Mat', text:'Kaffe är världens näst mest handlade råvara — efter olja.', extra:'Över 2,25 miljarder koppar kaffe dricks varje dag globalt. Etiopien är kaffeodlingens ursprung — legenden säger att en getherdes getter började dansa efter att ha ätit kaffefrukter. Finland dricker mest kaffe per capita: ~12 kg per person och år.', img:'https://images.unsplash.com/photo-1447933601403-0c6688de566e?w=400&h=200&fit=crop' },
+      { cat:'Psykologi', text:'Hjärnan fyller i tomrum i dina minnen — utan att du märker det.', extra:'Fenomenet kallas "konfabulering" och sker helt omedvetet. Varje gång du minns något omskrivs minnet och kan förändras lite. Ögonvittnens minnen har visat sig vara förvånansvärt opålitliga — forskningen av Elizabeth Loftus visade att man kan "implantera" falska minnen.', img:'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=200&fit=crop' },
+      { cat:'Psykologi', text:'Musik kan minska upplevd smärta.', extra:'Forskning visar att musik aktiverar hjärnans belöningssystem och frisätter dopamin och endorfiner. Patienter som lyssnade på musik efter operation behövde signifikant mindre smärtstillande. Tempot spelar roll: långsam musik (60–80 BPM) sänker pulsen och blodtrycket.', img:'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&h=200&fit=crop' },
+      { cat:'Psykologi', text:'Vi tror alla att andra tänker på oss mer än de gör.', extra:'Spotlight-effekten är ett kognitivt bias där vi överskattar hur mycket andra lägger märke till oss. I ett experiment fick deltagare bära pinsamma t-shirts — de trodde 50% av rummet märkte det. I verkligheten: under 25%.', img:'https://images.unsplash.com/photo-1499209974431-9dddcece7f88?w=400&h=200&fit=crop' },
+      { cat:'Djur', text:'Bläckfiskar har tre hjärtan och blått blod.', extra:'Två "gill-hjärtan" pumpar blod genom gälarna, medan det tredje pumpar det till resten av kroppen. Blodet är blått pga kopparbaserat hemocyanin istället för järnbaserat hemoglobin. De har dessutom 9 hjärnor (1 central + 1 i varje arm) och kan ändra färg på millisekunder.', img:'https://images.unsplash.com/photo-1545671913-b89ac1b4ac10?w=400&h=200&fit=crop' },
+      { cat:'Rymden', text:'En tesked neutronstjärna väger ca 6 miljarder ton.', extra:'Neutronstjärnor är resterna av massiva stjärnor som kollapsat. Materien är så komprimerad att atomerna krossats — bara neutroner kvar. En neutronstjärna kan ha massan av 1–2 solar men vara bara 20 km i diameter. De kan rotera 700 varv per sekund.', img:'https://images.unsplash.com/photo-1462331940025-496dfbfc7564?w=400&h=200&fit=crop' },
+      { cat:'Rymden', text:'Jorden är inte rund — den är lite tillplattad vid polerna.', extra:'Jordens rotation gör att ekvatorn buktar ut ca 43 km mer än poldiametern. Tekniskt sett är jorden en "oblat sfäroid". Mount Everest är inte närmast rymden — det är Chimborazo-vulkanen i Ecuador, tack vare ekvatorsbulten.', img:'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=400&h=200&fit=crop' },
+      { cat:'Djur', text:'Delfiner sover med ena hjärnhalvan i taget.', extra:'De måste vara medvetna för att andas vid ytan, så ena halvan av hjärnan sover medan den andra håller vakt. De alternerar sida och håller ofta ett öga öppet. Späckhuggare och vissa fågelarter gör likadant.', img:'https://images.unsplash.com/photo-1607153333879-c174d265f1d2?w=400&h=200&fit=crop' },
+      { cat:'Natur', text:'Det finns mer vatten i jordens mantel än i alla hav kombinerat.', extra:'En mineral kallad ringwoodit i jordens övergångszon (410–660 km djup) kan binda enorma mängder vatten i sin kristallstruktur. Forskare tror att det finns minst lika mycket vatten där nere som i alla hav på ytan. Vattnet är dock bundet i sten, inte flytande.', img:'https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=400&h=200&fit=crop' },
+      { cat:'Teknik', text:'Wi-Fi står inte för "Wireless Fidelity".', extra:'Interbrand, varumärkesbyrån som hittade på namnet, bekräftade att det inte betyder något. IEEE 802.11-standarden behövde ett snabbare namn än "IEEE 802.11b Direct Sequence". Frasen "Wireless Fidelity" användes kort i tidiga slogans men var aldrig den officiella betydelsen.', img:'https://images.unsplash.com/photo-1544197150-b99a580bb7a8?w=400&h=200&fit=crop' },
+      { cat:'Psykologi', text:'Lukter är starkast kopplade till minnen.', extra:'Luktsinnet kopplas direkt till amygdala (känslor) och hippocampus (minne) utan att passera thalamus först — unikt bland sinnena. Det kallas "Proust-effekten" efter författaren som beskrev hur en madeleinekaka triggade detaljerade barndomsminnen.', img:'https://images.unsplash.com/photo-1595425964072-537c688e91e5?w=400&h=200&fit=crop' },
+      { cat:'Sverige', text:'Sverige är ett av världens mest skogsrika länder — 70% täcks av skog.', extra:'Sverige har ca 28 miljoner hektar skogsmark, och det planteras fler träd än som avverkas sedan decennier. Piteå är känt som en av Europas nordligaste städer med stadsrättigheter. Fjällbjörken är ett av de träd som växer längst norrut i världen.', img:'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&h=200&fit=crop' },
+      { cat:'Sverige', text:'IKEA-grundaren Ingvar Kamprad startade sitt företag som 17-åring.', extra:'Han startade IKEA 1943 med pengar han fått av sin far som belöning för goda skolbetyg. Namnet är en akronym: Ingvar Kamprad, Elmtaryd (gården), Agunnaryd (hemorten). Kamprad var känd för sin extrem sparsamhet — han åt alltid på personalrestaurangen och flög ekonomi.', img:'https://images.unsplash.com/photo-1555529669-e69e7aa0ba9a?w=400&h=200&fit=crop' },
+      { cat:'Sverige', text:'Svenska är officiellt språk i både Sverige och Finland.', extra:'Finlandssvenska talas av ca 5% av Finlands befolkning (~280 000 personer) och är ett av Finlands två officiella språk. Åland är enspråkigt svenskt. Finlandssvenskan har bevarat äldre former som försvunnit i Sverige, t.ex. "mångel" (strykjärn) och "potatis" uttalas annorlunda.', img:'https://images.unsplash.com/photo-1509356843151-3e7d96241e11?w=400&h=200&fit=crop' },
+      { cat:'Djur', text:'Flamingos är rosa för att de äter räkor och alger.', extra:'Flamingos föds vita. Pigmentet karotenoid i deras föda (räkor, kiselalger) absorberas och lagras i fjädrarna. I fångenskap utan rätt mat bleknar de. Deras böjda näbb är anpassad för att filtrera mat ur vatten — de håller näbben uppochner medan de äter.', img:'https://images.unsplash.com/photo-1516467508483-a7212febe31a?w=400&h=200&fit=crop' },
+      { cat:'Djur', text:'Elefanter är de enda djuren utöver människor som håller ceremonier för sina döda.', extra:'Elefanter besöker döda flockmedlemmars ben, sniffar på dem och verkar "sörja". De bär ibland på benen i flera dagar. De reagerar starkare på elefantben än andra djurarters ben — de kan t.o.m. känna igen benen av en specifik individ de känt.', img:'https://images.unsplash.com/photo-1564760055775-d63b17a55c44?w=400&h=200&fit=crop' },
+      { cat:'Rymden', text:'Det tar 8 minuter och 20 sekunder för solljus att nå jorden.', extra:'Ljuset färdas 300 000 km/s, och solen är ca 150 miljoner km bort. Det betyder att solen du "ser" faktiskt är 8 minuter gammal. Om solen plötsligt slocknade skulle vi inte märka det på 8 minuter. Ljuset från närmaste stjärna (Proxima Centauri) tar 4,2 år.', img:'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&h=200&fit=crop' },
+      { cat:'Rymden', text:'Saturnus är så lätt att den skulle flyta i vatten.', extra:'Saturnus har en medelsdensitet av bara 0,687 g/cm³ — vatten har 1 g/cm³. Om det fanns ett hav stort nog skulle Saturnus flyta. Jupiter, Uranus och Neptunus är alla tätare än vatten. Saturnus ringar är huvudsakligen is och sträcker sig 282 000 km ut — men är bara meter tjocka.', img:'https://images.unsplash.com/photo-1614314107768-6018061b5b72?w=400&h=200&fit=crop' },
+      { cat:'Natur', text:'Blixt är fem gånger hetare än solens yta.', extra:'En blixt når temperaturen ~30 000 K (kelvin), medan solens yta är ca 5 500 K. Tryckvågen av den snabba uppvärmningen skapar åskan. En blixt varar bara 0,2 sekunder men innehåller ca 1 miljard volt. Varje sekund slår ca 100 blixtar ner på jordens yta.', img:'https://images.unsplash.com/photo-1466629437334-b4f6603563c5?w=400&h=200&fit=crop' },
+      { cat:'Natur', text:'Det finns en svamp i Oregon som är världens största organism — 9 km² stor.', extra:'Armillaria ostoyae (honungssvamp) i Malheur National Forest i Oregon uppskattas vara 8 650 år gammal och väger ca 600 ton. Det man ser ovan mark — svamphattarna — är bara en liten del. Det mesta är mycel under marken. Den dödar tallar genom att äta deras rötter.', img:'https://images.unsplash.com/photo-1518495973542-4542c06a5843?w=400&h=200&fit=crop' },
+      { cat:'Historia', text:'Ryssland sålde Alaska till USA för 7,2 miljoner dollar 1867.', extra:'Det motsvarar ungefär 2 cent per hektar. Ryska politiker och press hånade affären som ett slöseri med pengar — Alaska kallades "Sewards Dårskap" i USA. När man hittade guld i Klondike (1896) och olja i Prudhoe Bay (1968) ändrades perspektivet radikalt.', img:'https://images.unsplash.com/photo-1531366936337-7c912a4589a7?w=400&h=200&fit=crop' },
+      { cat:'Historia', text:'Napoleon var inte speciellt kort — han var genomsnittlig för sin tid.', extra:'Napoleon var ca 168 cm, vilket var genomsnittligt för en fransk man på 1800-talet. Myten om hans korthet uppstod delvis ur brittisk propaganda och en förväxling: Napoleon kallades "le petit caporal" (lilla korporalen) av sina soldater som smeknamn, inte för hans längd.', img:'https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=400&h=200&fit=crop' },
+      { cat:'Historia', text:'Oxford Universitetet är äldre än Aztekerriket.', extra:'Oxford började ta emot studenter runt år 1096–1167. Aztekerriket grundades ca 1428. Oxford är alltså över 200 år äldre. Bolognauniversitetet i Italien (grundat 1088) anses vara världens äldsta universitet fortfarande i drift. Det var ursprungligen inriktat på juridik.', img:'https://images.unsplash.com/photo-1518457607834-6e8d80c183c5?w=400&h=200&fit=crop' },
+      { cat:'Kroppen', text:'Fingeravtryck är unika — även hos identiska tvillingar.', extra:'DNA bestämmer det grundläggande mönstret, men de exakta vrickorna formas av slumpmässiga faktorer i livmodern: position, rörelser, trycket från fostervatten. Identiska tvillingar delar DNA men inte fingeravtryck. Inte ens koalorer, som också har fingeravtryck, delar mönster.', img:'https://images.unsplash.com/photo-1585399000684-d2f72660f092?w=400&h=200&fit=crop' },
+      { cat:'Kroppen', text:'Tarmbakterierna väger sammanlagt ~1,5 kg och är fler än dina egna celler.', extra:'Du har ca 38 biljoner bakterier i tarmen jämfört med ca 30 biljoner mänskliga celler. De bildar ett unikt "mikrobiom" som påverkar immunförsvaret, humöret och ämnesomsättningen. Studier kopplar mikrobiomets sammansättning till depression, fetma och till och med personlighet.', img:'https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=400&h=200&fit=crop' },
+      { cat:'Kroppen', text:'Du blinkar ~15–20 gånger per minut, men nästan aldrig mitt i en mening.', extra:'Blinkandet koordineras omedvetet med naturliga pauser i tal och läsning — ofta vid punkter, kommatecken eller ordgränser. Forskning visade att publik synkroniserar sina blinkningar med en talare. Under intensivt fokus (t.ex. datorn) blinkar vi upp till 60% mindre och får torra ögon.', img:'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&h=200&fit=crop' },
+      { cat:'Teknik', text:'Den första datorbugg var en riktig insekt.', extra:'1947 hittade Grace Hopper och hennes team en dead moth (nattfjäril) inkilad i ett relä i Harvard Mark II-datorn. De tejpade fast den i loggen med anteckningen "First actual case of bug being found". Termen "bug" för programfel användes dock redan innan av Thomas Edison för tekniska fel.', img:'https://images.unsplash.com/photo-1555949963-aa79dcee981c?w=400&h=200&fit=crop' },
+      { cat:'Teknik', text:'YouTube laddas upp ca 500 timmar video varje minut.', extra:'Det motsvarar 30 000 timmars video per timme, eller 720 000 timmar per dag. Sedan 2005 har platformen vuxit explosivt — 2012 passerades 72 timmars video per minut, 2022 var det 500 timmar. Om du försökte titta på allt som laddas upp på en dag skulle det ta ca 82 år.', img:'https://images.unsplash.com/photo-1611532736597-de2d4265fba3?w=400&h=200&fit=crop' },
+      { cat:'Mat', text:'Peanutbutter är inte nöt — jordnötter är baljväxter.', extra:'Jordnötter tillhör baljväxtfamiljen (Fabaceae) tillsammans med ärtor, linser och bönor. De gror ovan jord men böjer sedan ner och bildar baljorna i marken. Jordnötsodlingen berikar marken med kväve. Ca 50 jordnötter går åt för att göra en burk jordnötssmör.', img:'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400&h=200&fit=crop' },
+      { cat:'Mat', text:'Ägg innehåller alla essentiella aminosyror som kroppen behöver.', extra:'Ägg anses vara det "perfekta proteinet" — de har det bästa aminosyramönstret av alla naturliga livsmedel. Gulan innehåller fett, A-vitamin, D-vitamin, B12 och kolin (viktigt för hjärnan). Vitets protein, albumin, används som referensstandard för att mäta proteinvärde hos andra livsmedel.', img:'https://images.unsplash.com/photo-1498654896293-37aacf113fd9?w=400&h=200&fit=crop' },
+      { cat:'Psykologi', text:'Vi fattar de flesta beslut omedvetet — och hittar på skäl efteråt.', extra:'Neuroforskning av Benjamin Libet visade att hjärnan förbereder en rörelse upp till 0,5 sek INNAN vi är medvetna om beslutet att röra oss. Forskning av Ap Dijksterhuis visar att komplexa beslut (som att köpa bil) ofta fattas bättre om vi sover på saken och låter det omedvetna arbeta.', img:'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=400&h=200&fit=crop' },
+      { cat:'Psykologi', text:'"Flow" — total koncentration — är kroppens naturliga belöning för rätt utmaning.', extra:'Mihaly Csikszentmihalyi identifierade flödestillståndet: när utmaningen exakt matchar vår förmåga försvinner tidsuppfattningen och prestationen maximeras. Det frigör dopamin och noradrenalin. Kirurger, musiker och idrottare beskriver det som de stunder de presterar som bäst.', img:'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=400&h=200&fit=crop' },
+      { cat:'Djur', text:'Krokodiler överlevde dinosaurieutrotningen relativt oförändrade.', extra:'Krokodildjur har funnits i ca 200 miljoner år och ser nästan likadana ut som för 80 miljoner år sedan. De överlevde asteroiden som utrotade dinosaurierna troligen tack vare sin förmåga att leva utan mat i månader och andas under vatten. De är faktiskt närmast besläktade med fåglar bland nutida djur.', img:'https://images.unsplash.com/photo-1540573133985-87b6da6d54a9?w=400&h=200&fit=crop' },
+      { cat:'Djur', text:'Getter har rektangulära pupiller — för att se runt om sig.', extra:'Den ovala/rektangulära pupillen hos getter, hästar och får ger ett extremt brett synfält (~340°) utan att röra på huvudet. Pupillen roterar automatiskt horisontellt när djuret böjer ner huvudet för att beta, så de alltid ser horisonten. Rovdjur (lejon, katter) har vertikala pupiller för djupseende.', img:'https://images.unsplash.com/photo-1524024973431-2ad916746881?w=400&h=200&fit=crop' },
+      { cat:'Natur', text:'Hajen är äldre som art än Saturnus ringar.', extra:'Hajar har funnits i ca 450 miljoner år — de föregick dinosaurierna med 200 miljoner år. Saturnus ringar bildades för bara 10–100 miljoner år sedan, troligen då en måne gick sönder. Hajar har alltså existerat 4–45 gånger längre än ringarna. De är också äldre än träd (360 miljoner år).', img:'https://images.unsplash.com/photo-1560275619-4662e36fa65c?w=400&h=200&fit=crop' },
+      { cat:'Natur', text:'Regnbågar är faktiskt runda cirklar — vi ser bara halvan.', extra:'En regnbåge är en fullständig cirkel av ljus, men marken skär av den nedre halvan. Från ett flygplan (eller en hög bergskant) kan man se hela cirkeln. Varje person ser en unik regnbåge — vinkeln till vattendroppar är exakt rätt för just din position, ingen annan ser exakt samma.', img:'https://images.unsplash.com/photo-1501854140801-50d01698950b?w=400&h=200&fit=crop' },
+      { cat:'Historia', text:'Egyptierna använde inte kameler för att bygga pyramiderna.', extra:'Kameler domesticerades i Arabien ca 1000 f.Kr. — mer än 1500 år EFTER att Cheopspyramiden byggdes (~2560 f.Kr.). Pyramiderna byggdes med hjälp av vattenkraft, träslädar, ramper och organiserade arbetslag med upp till 20 000 hantverkare och specialister, inte slavar.', img:'https://images.unsplash.com/photo-1539650116574-8efeb43e2750?w=400&h=200&fit=crop' },
+      { cat:'Historia', text:'Gin & tonic uppfanns som malariamedicin.', extra:'Britter i Indien på 1800-talet blandade kinintabletter (bitter, mot malaria) med sodavatten för att göra det drickbart — och tillsatte gin för smakens skull. Kvinin fluorescerar blå i UV-ljus, så tonic water lyser blått i mörka barer med UV-lampor. Modern tonic innehåller mycket lite kinin.', img:'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?w=400&h=200&fit=crop' },
+      { cat:'Teknik', text:'QR-koder uppfanns 1994 för att spåra bildelar i Japan.', extra:'Denso Wave, ett Toyotadotterbolag, skapade QR-koden (Quick Response) för att snabbt märka bilkomponenter. De valde att göra uppfinningen fri att använda utan patent, vilket möjliggjorde den globala spridningen. Tre kvadrater i hörnen är positioneringsmarkörer — den fjärde saknas medvetet.', img:'https://images.unsplash.com/photo-1595079676339-1534801ad6cf?w=400&h=200&fit=crop' },
+      { cat:'Teknik', text:'Den första webbsidan finns fortfarande online.', extra:'Tim Berners-Lee skapade den första webbsidan den 6 augusti 1991 på CERN. Adressen är http://info.cern.ch/hypertext/WWW/TheProject.html och den är fortfarande tillgänglig. Den beskriver helt enkelt vad World Wide Web är. Berners-Lee valde medvetet att inte patentera tekniken.', img:'https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=400&h=200&fit=crop' },
+      { cat:'Kroppen', text:'Du producerar ca 1–2 liter saliv per dag.', extra:'Saliven startar matsmältningen, neutraliserar syror och skyddar tänderna. Den innehåller lysozym (antibakteriellt enzym) och IgA-antikroppar. Nyfödda producerar lite saliv — det ökar dramatiskt runt 4–6 månader. Utan saliv kan man inte smaka mat — smakämnena måste lösas upp i vätska för att nå smaklökarna.', img:'https://images.unsplash.com/photo-1559757148-5c350d0d3c56?w=400&h=200&fit=crop' },
+      { cat:'Sverige', text:'Sverige har fler öar än något annat land i Europa — ca 221 800 stycken.', extra:'De flesta är obebodda klippöar i skärgårdarna längs ostkusten och västkusten. Stockholm skärgård ensam har 30 000 öar, öar och skär. Finland kommer tvåa i Europa med ca 188 000 öar. Många av de svenska öarna är populära sommarstugedestinationer.', img:'https://images.unsplash.com/photo-1531366936337-7c912a4589a7?w=400&h=200&fit=crop' },
+      { cat:'Mat', text:'Choklad var ursprungligen en dryck — och bitter.', extra:'Mayakulturen drack kakao blandad med vatten, chili och kryddor i tusentals år. Varken socker, mjölk eller fast form existerade i ursprungsreceptet. Fast choklad uppfanns i England 1847 av Fry & Sons. Mjölkchokladen skapades av Henri Nestlé och Daniel Peter 1875 i Schweiz.', img:'https://images.unsplash.com/photo-1511381939415-e44015466834?w=400&h=200&fit=crop' },
+      { cat:'Djur', text:'Pingviner friar med en speciell sten.', extra:'Manliga Adeliepingviner letar noggrant efter den perfekta stenen och presenterar den för honan. Om hon accepterar den, lägger hon den i boet — de är ett par. De bästa stensökarna är mest framgångsrika i sin fortplantning. Pingviner kan springa ~25 km/h och simma upp till ~36 km/h.', img:'https://images.unsplash.com/photo-1551986782-d0169b3f8fa7?w=400&h=200&fit=crop' },
+      { cat:'Rymden', text:'Rymden luktar bränt metall och stekt kött.', extra:'Astronauter beskriver lukten som fastnar på dräkterna efter rymdpromenader som "bränt metall", "varmsvetsning" och "biff". Det tros bero på polycykliska aromatiska kolväten och högenergetiska partiklar. Eftersom rymden är vakuum kan du inte lukta direkt — det är molekylerna som fastnar på material.', img:'https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=400&h=200&fit=crop' },
+      { cat:'Natur', text:'En honungsbis vingar slår 200 gånger per sekund och producerar buzz-tonen A.', extra:'Det är exakt A (440 Hz) — den internationella stämtonen för orkestrar. Drottningen och arbetsbiarna har olika frekvenser som de kommunicerar med. En bikupa producerar enorma mängder elektricitet — tillräckligt för att ladda en smartphone om det kunde samlas in.', img:'https://images.unsplash.com/photo-1558642452-9d2a7deb7f62?w=400&h=200&fit=crop' },
+      { cat:'Psykologi', text:'Att skriva för hand ökar inlärning bättre än att skriva på dator.', extra:'Forskning av Mueller & Oppenheimer (2014, Princeton) visade att studenter som antecknade för hand presterade bättre på tester än de som använde laptop — trots att de antecknade färre ord. Förklaringen: hand-skrivning kräver bearbetning och sammanfattning, inte bara avskrift.', img:'https://images.unsplash.com/photo-1501504905252-473c47e087f8?w=400&h=200&fit=crop' },
+      { cat:'Historia', text:'Post-it-lappen uppfanns av misstag — men ingen ville ha den i 5 år.', extra:'Spencer Silver på 3M skapade 1968 ett lim som fäste lätt men lossnade lätt — en "misslyckad" uppfinning. Ingen visste vad det skulle användas till. 1974 använde kollegan Arthur Fry det på sin psalmbok-bokmärke för att de inte skulle falla ut. 3M var tveksamma i 5 år, lanserade 1980 — och det blev en storsäljare.', img:'https://images.unsplash.com/photo-1586281380349-632531db7ed4?w=400&h=200&fit=crop' },
+      { cat:'Kroppen', text:'Hjärtat slår ca 100 000 gånger om dagen — och pumpar 7 600 liter blod.', extra:'Under ett 70-årigt liv slår hjärtat ca 2,5 miljarder gånger. Blodet cirkulerar hela kroppen ca 1 000 gånger per dag. Hjärtat genererar ett elektriskt fält som kan mätas upp till en meter från kroppen. Det kan fortsätta slå utanför kroppen så länge det får syre — det har en inbyggd pacemaker.', img:'https://images.unsplash.com/photo-1559757175-5700dde675bc?w=400&h=200&fit=crop' },
+      { cat:'Natur', text:'Isbjörnar har svart hud — inte vit.', extra:'Isbjörnens päls är genomskinlig och hårstrået är ihåligt. Det verkar vitt för att det reflekterar ljuset. Under pälsen är huden svart, för att absorbera solenergi. Myten att pälsen leder UV-ljus till huden som fiberoptik är dock motbevisad — transmissionen är minimal.', img:'https://images.unsplash.com/photo-1531216012989-a89e3e1b9bf0?w=400&h=200&fit=crop' },
+      { cat:'Teknik', text:'GPS-systemet fungerar tack vare Einsteins relativitetsteori.', extra:'GPS-satelliter rör sig snabbt (specialrelativitet → klockor går långsammare) och är högt upp i gravitationen (generalrelativitet → klockor går snabbare). Nettofelet är +38 mikrosekunder per dag. Utan relativitetskorrigering skulle GPS driva ca 10 km per dag. Einstein visste inte att hans teori skulle navigera våra bilar.', img:'https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=400&h=200&fit=crop' },
+      { cat:'Mat', text:'Varm mat luktar mer — och smakar mer — än kall mat.', extra:'Värme ökar avdunstningen av aromatiska molekyler, vilket gör att lukten (80% av smakupplevelsen) intensifieras. Därför smakar en kall pizza ofta mindre än en varm. Flyg-mat upplevs som smaklös delvis för att kabinluften är torr och komprimerad, vilket dämpar luktsinnet med 20–30%.', img:'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400&h=200&fit=crop' },
+      { cat:'Djur', text:'Råttor skrattar — men på ultrasound som vi inte kan höra.', extra:'Neuroforskning av Jaak Panksepp (1990-talet) visade att råttor avger 50 kHz-läten (jämfört med vår 20 kHz-gräns) när de leker och kittlas. De söker aktivt upp kittling och dessa läten tyder på positiv känsla. Råttor har också visat empati — de hjälper instängda artfränder att fly, även om det kostar dem mat.', img:'https://images.unsplash.com/photo-1425082661705-1834bfd09dca?w=400&h=200&fit=crop' },
+      { cat:'Historia', text:'Den kinesiska muren är inte synlig från rymden med blotta ögat.', extra:'Myten populariserades av en skolbok 1932. NASA-astronauten Ed Lu bekräftade 2003 att han inte kunde se den. Muren är lång (21 000 km) men bara ~5 meter bred — tunnare än ett hår i förhållande till Jordens diameter. Däremot syns städer, motorvägar och Himalayas glaciärer.', img:'https://images.unsplash.com/photo-1508804185872-d7badad00f7d?w=400&h=200&fit=crop' },
+      { cat:'Rymden', text:'Marsens solnedgångar är blå.', extra:'På Mars är himmelen rödaktig under dagen pga järnoxiddamm, men vid solnedgång sker det omvända mot jordens: finpartiklarna sprider blått ljus effektivt nära horisonten, vilket ger en blåaktig solnedgång. NASA:s rovers har fotograferat detta flera gånger.', img:'https://images.unsplash.com/photo-1614732414444-096e5f1122d5?w=400&h=200&fit=crop' },
+      { cat:'Sverige', text:'Alfred Nobel uppfann dynamiten och ångrade sig djupt.', extra:'Nobel uppfann dynamit 1867 som ett säkrare alternativ till nitroglycerin. När hans bror dog i en explosion missuppfattades dödsnotisen som "dödshandlarens död" — Nobels. Chockad av hur han skulle komma att minnas, testamenterade han sin förmögenhet (~2 miljarder kr i nutida pengar) till de berömda Nobelpriset.', img:'https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=400&h=200&fit=crop' },
+      { cat:'Psykologi', text:'Kronisk ensamhet är lika skadligt för hälsan som att röka 15 cigaretter om dagen.', extra:'Meta-studier av Julianne Holt-Lunstad (2015) visade att social isolering ökar dödlighetsrisken med 29%, ensamhet med 26% och att leva ensam med 32%. Ensamhet triggar samma smärtcentra i hjärnan som fysisk smärta — det är evolutionärt programmerat för att hålla oss i grupper.', img:'https://images.unsplash.com/photo-1499209974431-9dddcece7f88?w=400&h=200&fit=crop' },
+      { cat:'Kroppen', text:'Nästan alla människor är svaga för ett specifikt ansikte — sitt eget spegelbild.', extra:'Vi ser normalt vårt spegelvänt ansikte, men alla andra ser det "rätta" ansiktet. I experiment föredrar folk konsekvent sin spegelbild, medan vänner föredrar det orändrade fotot. Det beror på att vi är mest bekanta med spegelbilden. Asymmetrier i ansiktet är normala — perfekt symmetri upplevs faktiskt som onaturligt.', img:'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&h=200&fit=crop' },
+      { cat:'Natur', text:'Havsvatten lyser i mörkret — på grund av plankton.', extra:'Dinoflagellater (encelliga alger) bioluminescerar när de störs — t.ex. av vågor eller ett simmande djur. De producerar ljus via ett enzym (luciferas) som reaktion på mekanisk störning. Havet kan lysa blått i strålar från båtar på natten. Samma princip används i glödmaskar och eldflugors svans.', img:'https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=400&h=200&fit=crop' },
+      { cat:'Historia', text:'Lego är världens största lekmedelstillverkare räknat i antal.', extra:'LEGO producerar ca 36 miljarder klossar per år — det är fler hjul än något annat fordonsmärke i världen. Lego-hjulet är den mest tillverkade hjulet i historien. Bolaget grundades 1932 av Ole Kirk Christiansen i Danmark. Lego-klossar från 1958 passar fortfarande med dagens — toleransen är under 0,002 mm.', img:'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=200&fit=crop' },
+      { cat:'Teknik', text:'Velcro uppfanns efter en promenad med hunden.', extra:'1941 kom George de Mestral hem från en vandring och märkte att kardborrfrön fastnat i hundens päls och hans kläder. Under mikroskopet såg han att fröna hade hakar. Han tog 8 år på sig att återskapa strukturen i nylon. Velcro (velours + crochet) patenterades 1955 och NASA använde det tidigt i rymddräkter.', img:'https://images.unsplash.com/photo-1581833971358-2c8b550f87b3?w=400&h=200&fit=crop' },
+    ];
+
+    // True random shuffle, persist position across reloads
+    function shuffleArray(arr) { for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];}return arr; }
+    const shuffled = shuffleArray([...FUN_FACTS]);
+    let factIndex = parseInt(localStorage.getItem('factIndex')||'0') % shuffled.length;
+    let readMoreTimer = null;
+
+    function showFunFact() {
+      const el = document.getElementById('discoverContent');
+      const fact = shuffled[factIndex % shuffled.length];
+      // Pre-check image loads, skip to next if broken
+      const img = new Image();
+      img.onload = () => {
+        el.innerHTML = `
+          <img class="discover-img" src="${fact.img}" alt="">
+          <div class="discover-text">
+            <span style="color:#58a6ff;font-size:0.75rem">${fact.cat}</span><br>
+            ${fact.text}
+            <button class="discover-readmore">Läs mer</button>
+            <div class="discover-extra" id="discoverExtra">${fact.extra}</div>
+          </div>`;
+      };
+      img.onerror = () => {
+        factIndex++;
+        localStorage.setItem('factIndex', factIndex);
+        if (factIndex < shuffled.length * 2) showFunFact();
+      };
+      img.src = fact.img;
+      factIndex++;
+      localStorage.setItem('factIndex', factIndex);
+    }
+
+    // Use event delegation for dynamically created button
+    document.getElementById('discoverContent').addEventListener('click', (e) => {
+      if (!e.target.classList.contains('discover-readmore')) return;
+      const extra = document.getElementById('discoverExtra');
+      if (!extra) return;
+      const isOpen = extra.classList.toggle('open');
+      e.target.textContent = isOpen ? 'Stäng' : 'Läs mer';
+      if (readMoreTimer) clearTimeout(readMoreTimer);
+      if (isOpen) {
+        readMoreTimer = setTimeout(() => {
+          extra.classList.remove('open');
+          e.target.textContent = 'Läs mer';
+        }, 60000);
+      }
+    });
+
+    showFunFact();
+    setInterval(showFunFact, 10 * 60 * 1000); // Every 10 min
+
+    // ===== HISTORY: "Denna dag i historien" (1 event) =====
+    async function fetchHistory() {
+      const el = document.getElementById('historyContent');
+      const now = new Date();
+      const mm = String(now.getMonth()+1).padStart(2,'0');
+      const dd = String(now.getDate()).padStart(2,'0');
+      try {
+        const r = await fetch(`https://sv.wikipedia.org/api/rest_v1/feed/onthisday/events/${mm}/${dd}`);
+        const d = await r.json();
+        if (d.events && d.events.length > 0) {
+          // Pick the most notable event (first one is usually the most significant)
+          const e = d.events[0];
+          el.innerHTML = `<span class="history-year">${e.year}</span><div class="history-text">${e.text}</div>`;
+        } else {
+          el.innerHTML = '<div class="discover-loading">Inga händelser</div>';
+        }
+      } catch(e) {
+        el.innerHTML = '<div class="discover-loading">Kunde inte ladda</div>';
+      }
+    }
+    fetchHistory();
+
+    // ===== TIMERS =====
+    const MAX_TIMERS = 4;
+    let timers = [], timerInterval = null;
+    const timerAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playAlarm() { for(let i=0;i<3;i++) setTimeout(()=>{const o=timerAudioCtx.createOscillator(),g=timerAudioCtx.createGain();o.connect(g);g.connect(timerAudioCtx.destination);o.frequency.value=880;g.gain.value=0.3;o.start();o.stop(timerAudioCtx.currentTime+0.15);},i*300); }
+    function formatTime(s) { if(s<0)s=0;const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;return h>0?`${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`:`${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`; }
+    function addTimer(t,l) { if(timers.length>=MAX_TIMERS)return;timers.push({id:Date.now(),total:t,remaining:t,running:true,done:false,label:l||''});renderTimers();startTimerLoop(); }
+    function removeTimer(id) { timers=timers.filter(t=>t.id!==id);renderTimers(); }
+    function toggleTimer(id) { const t=timers.find(t=>t.id===id);if(t&&!t.done)t.running=!t.running;renderTimers(); }
+    function startTimerLoop() { if(timerInterval)return;timerInterval=setInterval(()=>{timers.forEach(t=>{if(t.running&&!t.done){t.remaining--;if(t.remaining<=0){t.remaining=0;t.done=true;t.running=false;playAlarm();}}});renderTimers();if(!timers.some(t=>t.running)){clearInterval(timerInterval);timerInterval=null;}},1000); }
+    function renderTimers() {
+      const c=document.getElementById('timersContainer');
+      const cnt=timers.length||1, rs=cnt<=1?80:cnt<=2?64:50, R=rs*0.42, C=2*Math.PI*R, fs=cnt<=1?'1.2rem':cnt<=2?'0.95rem':'0.75rem';
+      c.innerHTML = timers.map(t=>{
+        const pct=t.total>0?t.remaining/t.total:0, off=C*(1-pct);
+        return `<div class="timer-item"><div class="timer-ring" style="width:${rs}px;height:${rs}px"><svg viewBox="0 0 ${rs} ${rs}" width="${rs}" height="${rs}"><circle class="timer-ring-bg" cx="${rs/2}" cy="${rs/2}" r="${R}"/><circle class="timer-ring-fg ${t.done?'done':''}" cx="${rs/2}" cy="${rs/2}" r="${R}" stroke-dasharray="${C}" stroke-dashoffset="${off}"/></svg><div class="timer-ring-text ${t.done?'done':''}" style="font-size:${fs}">${formatTime(t.remaining)}</div></div>${t.label?`<div class="timer-label">${t.label}</div>`:''}<button class="timer-btn" onclick="toggleTimer(${t.id})">${t.running?'⏸':(t.done?'✓':'▶')}</button><button class="timer-btn" onclick="removeTimer(${t.id})">✕</button></div>`;
+      }).join('') + (timers.length<MAX_TIMERS?'<div class="timer-add" onclick="showTimerModal()">+ Ny timer</div>':'');
+    }
+    renderTimers();
+    function showTimerModal(){document.getElementById('timerModal').classList.add('active');}
+    function hideTimerModal(){document.getElementById('timerModal').classList.remove('active');}
+    document.querySelectorAll('.timer-preset[data-seconds]').forEach(b=>b.addEventListener('click',()=>{addTimer(parseInt(b.dataset.seconds));hideTimerModal();}));
+    document.getElementById('customTimerBtn').addEventListener('click',()=>{const m=parseInt(document.getElementById('customMinutes').value);if(m>0){addTimer(m*60);hideTimerModal();}});
+    document.getElementById('timerModal').addEventListener('click',e=>{if(e.target.id==='timerModal')hideTimerModal();});
+
+    // ===== APPS =====
+    document.getElementById('appsBtn').addEventListener('click',()=>document.getElementById('appsModal').classList.add('active'));
+    document.getElementById('appClose').addEventListener('click',e=>{e.preventDefault();document.getElementById('appsModal').classList.remove('active');});
+    document.getElementById('appsModal').addEventListener('click',e=>{if(e.target.id==='appsModal')document.getElementById('appsModal').classList.remove('active');});
+
+    // ===== CALENDAR =====
+    function openCalendar() {
+      const body = document.getElementById('dynamicBody');
+      const content = document.getElementById('dynamicContent');
+      const url = CONFIG.calendarUrl + (CONFIG.calendarUrl.includes('?') ? '&' : '?') +
+        'hl=sv&showTitle=0&showNav=1&showPrint=0&showTabs=0&showCalendars=0&mode=MONTH';
+      body.innerHTML = `<iframe src="${url}" allow="autoplay" style="width:100%;height:100%;border:none;display:block;"></iframe>`;
+      body.classList.add('cal-active');
+      content.classList.add('active');
+      // Auto-close after 2 minutes
+      clearTimeout(calAutoCloseTimer);
+      calAutoCloseTimer = setTimeout(closeCalendar, 2 * 60 * 1000);
+    }
+    function closeCalendar() {
+      clearTimeout(calAutoCloseTimer);
+      const body = document.getElementById('dynamicBody');
+      body.classList.remove('cal-active');
+      body.innerHTML = '';
+      document.getElementById('dynamicContent').classList.remove('active');
+    }
+    document.getElementById('calBtn').addEventListener('click', () => {
+      const isOpen = document.getElementById('dynamicContent').classList.contains('active') &&
+                     document.getElementById('dynamicBody').classList.contains('cal-active');
+      if (isOpen) { closeCalendar(); } else { openCalendar(); fetchTodayEvents(); }
+    });
+
+    // ===== TODAY EVENTS (Google Calendar API) =====
+    async function fetchTodayEvents() {
+      const el = document.getElementById('todayEvents');
+      if (!CONFIG.googleCalendarApiKey || !CONFIG.calendarUrl) return;
+      try {
+        const calId = new URL(CONFIG.calendarUrl).searchParams.get('src');
+        if (!calId) return;
+        const now = new Date();
+        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        const end   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString();
+        const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events?key=${CONFIG.googleCalendarApiKey}&timeMin=${start}&timeMax=${end}&singleEvents=true&orderBy=startTime&maxResults=4`;
+        const data = await fetch(url).then(r => r.json());
+        const items = (data.items || []);
+        if (!items.length) { el.innerHTML = '<div class="today-event-item" style="color:rgba(255,255,255,0.35);">Inga händelser idag</div>'; return; }
+        el.innerHTML = items.map(ev => {
+          const start = ev.start.dateTime ? new Date(ev.start.dateTime) : null;
+          const timeStr = start ? start.toLocaleTimeString('sv-SE', {hour:'2-digit',minute:'2-digit'}) : 'Heldag';
+          return `<div class="today-event-item"><span class="today-event-time">${timeStr}</span><span class="today-event-title">${ev.summary||''}</span></div>`;
+        }).join('');
+      } catch(e) { /* silent fail */ }
+    }
+    fetchTodayEvents();
+    setInterval(fetchTodayEvents, 15 * 60 * 1000);
+
+    // ===== BLUETOOTH =====
+    let btDevice = null;
+    const btBtn = document.getElementById('btBtn');
+    btBtn.addEventListener('click', async () => {
+      if (btDevice && btDevice.gatt && btDevice.gatt.connected) {
+        btDevice.gatt.disconnect();
+        btDevice = null;
+        btBtn.className = 'fab fab-bt';
+        return;
+      }
+      if (!navigator.bluetooth) { alert('Web Bluetooth stöds inte i den här webbläsaren.'); return; }
+      try {
+        btBtn.className = 'fab fab-bt connecting';
+        btDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: CONFIG.marshallName }],
+          optionalServices: ['battery_service']
+        });
+        btDevice.addEventListener('gattserverdisconnected', () => {
+          btBtn.className = 'fab fab-bt';
+          btDevice = null;
+        });
+        await btDevice.gatt.connect();
+        btBtn.className = 'fab fab-bt connected';
+      } catch (e) {
+        btBtn.className = 'fab fab-bt';
+        if (e.name !== 'NotFoundError' && e.name !== 'AbortError') alert('Bluetooth-fel: ' + e.message);
+      }
+    });
+
+    // ===== AI =====
+    class AIProvider {
+      static async chat(m,s){if(CONFIG.aiProvider==='gemini')return AIProvider.gemini(m,s);return 'AI ej konfigurerad.';}
+      static async gemini(m,s){if(!CONFIG.geminiApiKey)return 'Gemini API-nyckel saknas.';const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.geminiModel}:generateContent?key=${CONFIG.geminiApiKey}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({system_instruction:{parts:[{text:s}]},contents:[{parts:[{text:m}]}],generationConfig:{maxOutputTokens:300}})});const d=await r.json();return d.candidates?.[0]?.content?.parts?.[0]?.text||'Inget svar.';}
+    }
+
+    // ===== VOICE =====
+    const voiceBtn=document.getElementById('voiceBtn'),voiceTranscript=document.getElementById('voiceTranscript'),voiceUserText=document.getElementById('voiceUserText'),voiceAiText=document.getElementById('voiceAiText');
+    const SYS_PROMPT=`Du är en smart hemassistent i Stureby, Stockholm. Du MÅSTE ALLTID svara på SVENSKA. Aldrig engelska. Svara kort och koncist.
+Om användaren ber om timer: svara BARA med JSON {"timer": SEKUNDER, "label": "NAMN"}.
+Om användaren ber att spela något på Spotify (artist, låt, genre): svara BARA med JSON {"spotify_search": "artist eller låt"}.
+Om användaren bara säger "spela musik" eller "spela spotify": svara BARA med JSON {"spotify_search": ""}.
+Om användaren ber om recept eller matförslag: svara BARA med JSON {"search": "sökfras för recept"}.
+Om användaren frågar om väder: svara med en kort sammanfattning av vädret baserat på vad du vet.
+Övriga frågor: svara kort och koncist.
+VIKTIGT: Alla svar ska vara på svenska. Även JSON-kommandon. Aldrig engelska.`;
+    let voiceState='idle';
+    function setVoiceState(s){voiceState=s;voiceBtn.className='fab fab-voice'+(s!=='idle'?` ${s}`:'');}
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    voiceBtn.addEventListener('click',async()=>{
+      if(voiceState==='listening')return;if(voiceState==='speaking'){window.speechSynthesis.cancel();setVoiceState('idle');return;}
+      if(timerAudioCtx.state==='suspended')timerAudioCtx.resume();
+      if(!SR){alert('Taligenkänning stöds inte. Använd Chrome.');return;}
+      const r=new SR();r.lang=CONFIG.voiceLanguage;r.interimResults=false;r.maxAlternatives=1;
+      setVoiceState('listening');voiceTranscript.classList.add('active');voiceUserText.textContent='Lyssnar...';voiceAiText.textContent='';
+      r.onresult=async e=>{const t=e.results[0][0].transcript;voiceUserText.textContent=t;setVoiceState('processing');try{handleAI(await AIProvider.chat(t,SYS_PROMPT),t);}catch(er){voiceAiText.textContent='Fel: '+er.message;setVoiceState('idle');}};
+      r.onerror=()=>{voiceUserText.textContent='Kunde inte höra.';setVoiceState('idle');setTimeout(()=>voiceTranscript.classList.remove('active'),3000);};
+      r.onend=()=>{if(voiceState==='listening')setVoiceState('idle');};r.start();
+    });
+    function handleAI(res, ut) {
+      try {
+        const m = res.match(/\{[\s\S]*?\}/);
+        if (m) {
+          const c = JSON.parse(m[0]);
+          if (c.timer) {
+            addTimer(c.timer, c.label || '');
+            voiceAiText.textContent = `Timer: ${formatTime(c.timer)}`;
+            speak(`Absolut. Timer på ${formatTime(c.timer)}`);
+            return;
+          }
+          if (c.spotify_search !== undefined) {
+            switchToSpotify();
+            if (c.spotify_search) {
+              voiceAiText.textContent = `Söker: ${c.spotify_search}`;
+              speak(`Absolut. Spelar ${c.spotify_search}`);
+              spotifySearch(c.spotify_search).then(result => {
+                if (result) voiceAiText.textContent = result;
+              });
+            } else {
+              voiceAiText.textContent = 'Spelar Spotify';
+              speak('Absolut. Spelar musik');
+              spotifyTogglePlay();
+            }
+            return;
+          }
+          if (c.search) {
+            voiceAiText.textContent = 'Söker...';
+            speak('Absolut. Jag söker');
+            showGoogleSearch(c.search);
+            return;
+          }
+        }
+      } catch (e) {}
+      // Short answers: just speak
+      voiceAiText.textContent = res;
+      speak(res);
+    }
+    // Pre-load voices as early as possible
+    let _cachedVoices = [];
+    function loadVoices() { _cachedVoices = window.speechSynthesis.getVoices(); }
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = () => {
+      loadVoices();
+      console.log('[TTS] Voices available:', _cachedVoices.map(v => v.lang + ' – ' + v.name));
+    };
+
+    function speak(t){
+      setVoiceState('speaking');
+      window.speechSynthesis.cancel();
+      function doSpeak() {
+        const voices = _cachedVoices.length ? _cachedVoices : window.speechSynthesis.getVoices();
+        const u = new SpeechSynthesisUtterance(t);
+        u.lang = 'sv-SE';
+        const sv = voices.find(v => v.lang === 'sv-SE') ||
+                   voices.find(v => v.lang === 'sv_SE') ||
+                   voices.find(v => v.lang.startsWith('sv')) ||
+                   voices.find(v => v.lang === 'nb-NO' || v.lang === 'da-DK') || null;
+        console.log('[TTS] Using voice:', sv ? sv.name + ' (' + sv.lang + ')' : 'default (lang=sv-SE)');
+        if (sv) u.voice = sv;
+        u.rate = 1;
+        u.onend = () => { setVoiceState('idle'); setTimeout(() => voiceTranscript.classList.remove('active'), 5000); };
+        u.onerror = (e) => { console.log('[TTS] Error:', e); setVoiceState('idle'); };
+        window.speechSynthesis.speak(u);
+      }
+      if (_cachedVoices.length > 0) {
+        setTimeout(doSpeak, 150);
+      } else {
+        const prev = window.speechSynthesis.onvoiceschanged;
+        window.speechSynthesis.onvoiceschanged = () => {
+          loadVoices();
+          window.speechSynthesis.onvoiceschanged = prev;
+          setTimeout(doSpeak, 150);
+        };
+      }
+    }
+
+    // ===== WAKE LOCK + SW =====
+    (async()=>{try{if('wakeLock' in navigator){await navigator.wakeLock.request('screen');document.addEventListener('visibilitychange',async()=>{if(document.visibilityState==='visible')try{await navigator.wakeLock.request('screen');}catch(e){}});}}catch(e){}})();
+    if('serviceWorker' in navigator)navigator.serviceWorker.register('dashboard-sw.js').catch(()=>{});
+  </script>
+</body>
+</html>

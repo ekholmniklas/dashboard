@@ -10,7 +10,7 @@ const REDIRECT_URI = 'https://ekholmniklas.github.io/dashboard/callback.html';
 async function handleCallback() {
   const params = new URLSearchParams(window.location.search);
   const code = params.get('code');
-  const verifier = params.get('state');
+  const verifier = params.get('state'); // verifier passed via state parameter
 
   if (!code || !verifier) {
     document.getElementById('status').textContent = 'Inloggning misslyckades. Stäng och försök igen.';
@@ -43,7 +43,7 @@ async function handleCallback() {
         }, '*');
         setTimeout(() => window.close(), 1500);
       } else {
-        document.getElementById('status').innerHTML = 'Inloggad! Gå tillbaka till dashboarden.';
+        document.getElementById('status').innerHTML = 'Inloggad!<br><small>Token: ' + data.access_token.substring(0,20) + '...</small><br>Kopiera denna och gå tillbaka till dashboarden.';
       }
     } else {
       document.getElementById('status').textContent = 'Fel: ' + (data.error_description || data.error || 'Okänt fel');
