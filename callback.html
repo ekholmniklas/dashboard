@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head><title>Spotify Login</title></head>
+<body style="background:#0d1117;color:#e6edf3;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh">
+<div id="status" style="text-align:center;font-size:1.2rem">Loggar in...</div>
+<script>
+const CLIENT_ID = '6576fae87ab646b09d80122c49d373d2';
+const REDIRECT_URI = 'https://nicjon.github.io/dashboard/callback.html';
+
+async function handleCallback() {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  const verifier = localStorage.getItem('spotify_pkce_verifier');
+
+  if (!code || !verifier) {
+    document.getElementById('status').textContent = 'Inloggning misslyckades. Stäng och försök igen.';
+    return;
+  }
+
+  // Exchange code for token
+  const body = new URLSearchParams({
+    client_id: CLIENT_ID,
+    grant_type: 'authorization_code',
+    code: code,
+    redirect_uri: REDIRECT_URI,
+    code_verifier: verifier,
+  });
+
+  try {
+    const res = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body,
+    });
+    const data = await res.json();
+
+    if (data.access_token) {
+      localStorage.setItem('spotify_token', data.access_token);
+      localStorage.setItem('spotify_token_time', Date.now());
+      if (data.refresh_token) localStorage.setItem('spotify_refresh_token', data.refresh_token);
+      document.getElementById('status').innerHTML = 'Inloggad! <br>Gå tillbaka till dashboarden.';
+      // Try to message opener
+      if (window.opener) {
+        window.opener.postMessage({ type: 'spotify_token', token: data.access_token }, '*');
+        setTimeout(() => window.close(), 1500);
+      }
+    } else {
+      document.getElementById('status').textContent = 'Fel: ' + (data.error_description || data.error || 'Okänt fel');
+    }
+  } catch(e) {
+    document.getElementById('status').textContent = 'Nätverksfel: ' + e.message;
+  }
+}
+
+handleCallback();
+</script>
+</body>
+</html>
