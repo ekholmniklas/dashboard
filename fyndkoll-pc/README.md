@@ -1,6 +1,10 @@
+| Visa fönster | Tar upp listan med fynd |
+| *(lista med fynd)* | Öppnar butikslänken; undermeny för forumsinlägget |
+| `Fyndkoll-Tray.ps1` | Fönstret, taskbar-knappen, ikonen, menyn, notiserna, timern |
 # Fyndkoll för PC
 
-Liten tray-app som bevakar SweClockers fyndtrådar och säger till när något nytt postas.
+Liten app som bevakar SweClockers fyndtrådar och säger till när något nytt postas:
+en taskbar-knapp som blinkar, en Windows-notis och en ikon i systemfältet.
 
 - [Dagens fynd](https://www.sweclockers.com/forum/trad/999559-dagens-fynd-bara-tips-ingen-diskussion-las-forsta-inlagget-forst/sista-sidan)
 - [Övriga fynd](https://www.sweclockers.com/forum/trad/1465406-ovriga-fynd-bara-tips-ingen-diskussion-las-forsta-inlagget-forst/sista-sidan)
@@ -18,14 +22,27 @@ För att den ska starta automatiskt: högerklicka på ikonen → **Starta med Wi
 
 ## Vad den gör när något nytt kommer
 
-1. En Windows-notis: rubriken är produkten, raden under är priset. Är det flera
+1. **Taskbar-knappen blinkar orange** — samma knapp som ligger nere bland Word
+   och Excel. Den blinkar tills du faktiskt tar upp fönstret, precis som när
+   Teams vill något.
+2. En Windows-notis: rubriken är produkten, raden under är priset. Är det flera
    fynd samtidigt blir det en sammanslagen notis med de fem senaste.
-2. Ikonen **blinkar** (grå ⇄ orange) tills du tittar.
-3. Vänsterklick på ikonen listar de olästa fynden, t.ex.
-   `7128 kr - Dreame Matrix 10 Ultra`. Klicka på ett för att öppna butiken;
-   undermenyn har **Visa inlägget** om du vill läsa tråden istället.
+3. Ikonen i systemfältet blinkar också (grå ⇄ orange), om den är synlig.
 
-Blinkningen slutar när du klickar på ikonen. **Markera alla som lästa** tömmer listan.
+Klicka på taskbar-knappen och fönstret listar fynden — pris, produkt, butik,
+tråd och tid. Nya fynd står i fetstil. **Dubbelklicka** en rad för att öppna
+butiken, **Ctrl+Enter** för forumsinlägget. Att titta på fönstret räknas som
+läst, så blinkandet slutar av sig självt.
+
+Stänger du fönstret minimeras det bara — appen fortsätter bevaka. Den avslutas
+via **Avsluta** i högerklicksmenyn på systemfältsikonen.
+
+### Om systemfältsikonen ligger dold
+
+Windows gömmer nya ikoner bakom pilen `^`. Antingen drar du ikonen därifrån ner
+till fältet, eller så slår du på den under *Inställningar → Anpassning →
+Aktivitetsfältet → Andra ikoner i systemfältet*. Taskbar-knappen syns alltid,
+så det är mest en smaksak.
 
 ## Menyn
 

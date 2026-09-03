@@ -1,8 +1,10 @@
-﻿# Fyndkoll - tray watcher for the SweClockers fynd threads.
+﻿# Fyndkoll - watches the SweClockers fynd threads.
 #
-# Sits in the notification area. Every few minutes it checks both threads; when
-# something new turns up it shows a notification and blinks the tray icon until
-# you look at it. Left-click lists the unread finds, click one to open it.
+# Keeps a taskbar button (next to Word, Excel and the rest) plus a tray icon.
+# Every few minutes it checks both threads; when something new turns up it shows
+# a notification, flashes the taskbar button orange and blinks the tray icon, and
+# keeps flashing until the window is brought to the foreground. The window lists
+# the finds - double-click one to open the shop, Ctrl+Enter for the forum post.
 #
 # Nothing to install: Windows PowerShell, .NET WinForms and curl.exe are all
 # already on the machine. Start it with Start-Fyndkoll.vbs (no console window).
@@ -47,6 +49,7 @@ function Get-FyndState {
         lastSeen        = [pscustomobject]@{}
         intervalMinutes = 15
         unread          = @()
+        recent          = @()
         seeded          = $false
     }
 }
@@ -74,6 +77,10 @@ function Set-LastSeenFor {
 }
 
 $script:State = Get-FyndState
+# 'recent' was added after the first release; older state files will not have it.
+if (-not $script:State.PSObject.Properties['recent']) {
+    $script:State | Add-Member -NotePropertyName recent -NotePropertyValue @()
+}
 if ($IntervalMinutes -gt 0) { $script:State.intervalMinutes = $IntervalMinutes }
 if (-not $script:State.intervalMinutes -or $script:State.intervalMinutes -lt 1) { $script:State.intervalMinutes = 15 }
 
@@ -165,7 +172,172 @@ function Clear-Unread {
     Save-FyndState -State $script:State
     Stop-Blink
     Set-TrayTooltip
+    if ($script:Form -and -not $script:Form.IsDisposed) { Update-Window }
 }
+
+# ---------------------------------------------------------------- window ------
+
+# FlashWindowEx is what makes a taskbar button pulse orange. FLASHW_TIMERNOFG
+# keeps it pulsing until the window is actually brought to the foreground, which
+# is the behaviour we want: it should not stop until it has been looked at.
+if (-not ('FyndkollFlash' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class FyndkollFlash
+{
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FLASHWINFO
+    {
+        public uint cbSize;
+        public IntPtr hwnd;
+        public uint dwFlags;
+        public uint uCount;
+        public uint dwTimeout;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool FlashWindowEx(ref FLASHWINFO pwfi);
+
+    private const uint FLASHW_STOP = 0;
+    private const uint FLASHW_ALL = 3;
+    private const uint FLASHW_TIMERNOFG = 12;
+
+    private static bool Flash(IntPtr handle, uint flags, uint count)
+    {
+        FLASHWINFO info = new FLASHWINFO();
+        info.cbSize = (uint)Marshal.SizeOf(typeof(FLASHWINFO));
+        info.hwnd = handle;
+        info.dwFlags = flags;
+        info.uCount = count;
+        info.dwTimeout = 0;
+        return FlashWindowEx(ref info);
+    }
+
+    public static void Start(IntPtr handle) { Flash(handle, FLASHW_ALL | FLASHW_TIMERNOFG, uint.MaxValue); }
+    public static void Stop(IntPtr handle) { Flash(handle, FLASHW_STOP, 0); }
+}
+'@
+}
+
+$script:Form = New-Object System.Windows.Forms.Form
+$script:Form.Text = 'Fyndkoll'
+$script:Form.Icon = $script:IconIdle
+$script:Form.Size = New-Object System.Drawing.Size 760, 420
+$script:Form.MinimumSize = New-Object System.Drawing.Size 520, 260
+$script:Form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
+$script:Form.ShowInTaskbar = $true
+
+$script:List = New-Object System.Windows.Forms.ListView
+$script:List.View = [System.Windows.Forms.View]::Details
+$script:List.FullRowSelect = $true
+$script:List.GridLines = $false
+$script:List.Dock = [System.Windows.Forms.DockStyle]::Fill
+[void]$script:List.Columns.Add('Pris', 90)
+[void]$script:List.Columns.Add('Fynd', 330)
+[void]$script:List.Columns.Add('Butik', 120)
+[void]$script:List.Columns.Add('Tråd', 95)
+[void]$script:List.Columns.Add('Tid', 55)
+$script:Form.Controls.Add($script:List)
+
+$script:Status = New-Object System.Windows.Forms.StatusStrip
+$script:StatusLabel = New-Object System.Windows.Forms.ToolStripStatusLabel
+[void]$script:Status.Items.Add($script:StatusLabel)
+$script:Form.Controls.Add($script:Status)
+
+function Update-Window {
+    $script:List.BeginUpdate()
+    try {
+        $script:List.Items.Clear()
+        $unreadIds = @(@($script:State.unread) | ForEach-Object { $_.PostId })
+        foreach ($find in @($script:State.recent)) {
+            $price = $find.Price
+            if (-not $price) { $price = '' }
+            $item = New-Object System.Windows.Forms.ListViewItem $price
+            [void]$item.SubItems.Add($find.Title)
+            $store = $find.Store
+            if (-not $store) { $store = '' }
+            [void]$item.SubItems.Add($store)
+            [void]$item.SubItems.Add($find.ThreadLabel)
+            $stamp = ''
+            if ($find.CreatedAt -gt 0) {
+                $stamp = [DateTimeOffset]::FromUnixTimeSeconds([int64]$find.CreatedAt).ToLocalTime().ToString('HH:mm')
+            }
+            [void]$item.SubItems.Add($stamp)
+            # Unread finds stand out; the rest are history.
+            if ($unreadIds -contains $find.PostId) {
+                $item.Font = New-Object System.Drawing.Font $script:List.Font, ([System.Drawing.FontStyle]::Bold)
+                $item.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#B4610F')
+            }
+            $target = $find.DealLink
+            if (-not $target) { $target = $find.Permalink }
+            $item.Tag = [pscustomobject]@{ Open = $target; Post = $find.Permalink; Note = $find.Note }
+            if ($find.Note) { $item.ToolTipText = $find.Note }
+            [void]$script:List.Items.Add($item)
+        }
+    }
+    finally { $script:List.EndUpdate() }
+
+    $bits = @()
+    if ($script:LastCheck) { $bits += "Senast kollat $($script:LastCheck.ToString('HH:mm:ss'))" }
+    else { $bits += 'Inte kollat än' }
+    $bits += "var $($script:State.intervalMinutes) min"
+    $unread = @($script:State.unread).Count
+    if ($unread -gt 0) { $bits += "$unread olästa" }
+    if ($script:LastError) { $bits += "fel: $($script:LastError)" }
+    $script:StatusLabel.Text = ($bits -join '  ·  ')
+}
+
+function Start-Flash {
+    try { [FyndkollFlash]::Start($script:Form.Handle) } catch {}
+}
+
+function Stop-Flash {
+    try { [FyndkollFlash]::Stop($script:Form.Handle) } catch {}
+}
+
+function Show-FyndWindow {
+    Stop-Flash
+    Stop-Blink
+    Update-Window
+    $script:Form.Show()
+    if ($script:Form.WindowState -eq [System.Windows.Forms.FormWindowState]::Minimized) {
+        $script:Form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
+    }
+    [void]$script:Form.Activate()
+    $script:Form.BringToFront()
+}
+
+$script:List.Add_DoubleClick({
+        $sel = @($script:List.SelectedItems)
+        if ($sel.Count -gt 0) { Open-Url -Url $sel[0].Tag.Open }
+    })
+
+# Enter opens the shop, Ctrl+Enter the forum post.
+$script:List.Add_KeyDown({
+        if ($_.KeyCode -eq [System.Windows.Forms.Keys]::Return) {
+            $sel = @($script:List.SelectedItems)
+            if ($sel.Count -gt 0) {
+                if ($_.Control) { Open-Url -Url $sel[0].Tag.Post } else { Open-Url -Url $sel[0].Tag.Open }
+            }
+        }
+    })
+
+# Closing hides the window instead of quitting; quitting is the tray menu's job.
+$script:Form.Add_FormClosing({
+        if ($_.CloseReason -eq [System.Windows.Forms.CloseReason]::UserClosing) {
+            $_.Cancel = $true
+            $script:Form.WindowState = [System.Windows.Forms.FormWindowState]::Minimized
+        }
+    })
+
+# Looking at the window counts as reading the finds.
+$script:Form.Add_Activated({
+        Stop-Flash
+        Stop-Blink
+        if (@($script:State.unread).Count -gt 0) { Clear-Unread }
+    })
 
 # --------------------------------------------------------------- checking -----
 
@@ -255,6 +427,9 @@ function Complete-FyndCheck {
     $script:LastError = if ($errors.Count -gt 0) { $errors -join '; ' } else { $null }
     $script:LastCheck = Get-Date
 
+    # Everything the window lists, unread or not.
+    $script:State.recent = @($posts | Sort-Object PostId -Descending -Unique | Select-Object -First 40)
+
     $isFirstRun = -not $script:State.seeded
     $fresh = @()
 
@@ -273,14 +448,13 @@ function Complete-FyndCheck {
         # Do not fire 35 notifications for posts that were already there.
         Write-FyndLog "seeded with $($posts.Count) existing posts"
         Save-FyndState -State $script:State
-        $script:Notify.ShowBalloonTip(6000, 'Fyndkoll bevakar nu', "Läste in $($posts.Count) befintliga inlägg. Du får en notis när något nytt postas.", [System.Windows.Forms.ToolTipIcon]::Info)
-        Set-TrayTooltip
-        return
+        $1
     }
 
     if ($fresh.Count -eq 0) {
         Write-FyndLog 'no new posts'
         Save-FyndState -State $script:State
+        Update-Window
         Set-TrayTooltip
         return
     }
@@ -307,6 +481,8 @@ function Complete-FyndCheck {
     }
 
     Start-Blink
+    Start-Flash
+    Update-Window
     Set-TrayTooltip
 }
 
@@ -355,6 +531,10 @@ function Build-Menu {
         [void]$script:Menu.Items.Add($idle)
         [void]$script:Menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
     }
+
+    $show = New-Object System.Windows.Forms.ToolStripMenuItem 'Visa fönster'
+    $show.Add_Click({ Show-FyndWindow })
+    [void]$script:Menu.Items.Add($show)
 
     $check = New-Object System.Windows.Forms.ToolStripMenuItem 'Kolla nu'
     $check.Enabled = -not $script:Checking
@@ -480,6 +660,13 @@ if (-not $script:Mutex.WaitOne(0, $false)) {
 
 Write-FyndLog "started (interval $($script:State.intervalMinutes) min)"
 Set-TrayTooltip
+
+# Shown-but-minimised gives a taskbar button next to Word and Excel, which is
+# what actually flashes when a find turns up. Closing it minimises again.
+$script:Form.WindowState = [System.Windows.Forms.FormWindowState]::Minimized
+$script:Form.Show()
+Update-Window
+
 $script:PollTimer.Start()
 Start-FyndCheck
 
