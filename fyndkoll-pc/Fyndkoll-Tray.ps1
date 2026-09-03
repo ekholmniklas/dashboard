@@ -1,10 +1,13 @@
 ﻿# Fyndkoll - watches the SweClockers fynd threads.
 #
 # Keeps a taskbar button (next to Word, Excel and the rest) plus a tray icon.
-# Every few minutes it checks both threads; when something new turns up it shows
-# a notification, flashes the taskbar button orange and blinks the tray icon, and
-# keeps flashing until the window is brought to the foreground. The window lists
-# the finds - double-click one to open the shop, Ctrl+Enter for the forum post.
+# Every ten minutes it checks both threads; when something new turns up the
+# taskbar button says "KAMPANJ!" and flashes, the tray icon blinks between a grey
+# "kr" and a hot pink "%", and a notification appears. The flashing continues
+# until the window is brought to the foreground.
+#
+# The window lists the finds. Hovering a row shows the whole post; double-click
+# opens the fynd post, Ctrl+double-click (or Ctrl+Enter) goes to the shop.
 #
 # Nothing to install: Windows PowerShell, .NET WinForms and curl.exe are all
 # already on the machine. Start it with Start-Fyndkoll.vbs (no console window).
@@ -47,7 +50,7 @@ function Get-FyndState {
     }
     [pscustomobject]@{
         lastSeen        = [pscustomobject]@{}
-        intervalMinutes = 15
+        intervalMinutes = 10
         unread          = @()
         recent          = @()
         seeded          = $false
@@ -82,15 +85,27 @@ if (-not $script:State.PSObject.Properties['recent']) {
     $script:State | Add-Member -NotePropertyName recent -NotePropertyValue @()
 }
 if ($IntervalMinutes -gt 0) { $script:State.intervalMinutes = $IntervalMinutes }
-if (-not $script:State.intervalMinutes -or $script:State.intervalMinutes -lt 1) { $script:State.intervalMinutes = 15 }
+if (-not $script:State.intervalMinutes -or $script:State.intervalMinutes -lt 1) { $script:State.intervalMinutes = 10 }
 
 # ---------------------------------------------------------------- icons -------
 
 $script:ColorIdle = [System.Drawing.ColorTranslator]::FromHtml('#5D5958')
-$script:ColorAlert = [System.Drawing.ColorTranslator]::FromHtml('#F3994E')
+# Kampanj-rosa, som på skyltarna i butik.
+$script:ColorAlert = [System.Drawing.ColorTranslator]::FromHtml('#D6004F')
 
+<#
+Tray icons are 16x16 once Windows is done with them, so a word like "KAMPANJ"
+is unreadable. The glyph carries the state instead: a calm grey "kr" normally,
+a hot pink "%" when there is something to look at. The word itself goes where
+there is room for it - the taskbar button and the notification.
+#>
 function New-FyndIcon {
-    param([System.Drawing.Color]$Background, [System.Drawing.Color]$Foreground)
+    param(
+        [System.Drawing.Color]$Background,
+        [System.Drawing.Color]$Foreground,
+        [string]$Glyph = 'kr',
+        [int]$FontSize = 14
+    )
 
     $bmp = New-Object System.Drawing.Bitmap 32, 32
     $g = [System.Drawing.Graphics]::FromImage($bmp)
@@ -101,13 +116,13 @@ function New-FyndIcon {
     $bg = New-Object System.Drawing.SolidBrush $Background
     $g.FillEllipse($bg, 0, 0, 31, 31)
 
-    $font = New-Object System.Drawing.Font 'Segoe UI', 14, ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
+    $font = New-Object System.Drawing.Font 'Segoe UI', $FontSize, ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
     $fg = New-Object System.Drawing.SolidBrush $Foreground
     $fmt = New-Object System.Drawing.StringFormat
     $fmt.Alignment = [System.Drawing.StringAlignment]::Center
     $fmt.LineAlignment = [System.Drawing.StringAlignment]::Center
     $rect = New-Object System.Drawing.RectangleF 0, 1, 32, 32
-    $g.DrawString('kr', $font, $fg, $rect, $fmt)
+    $g.DrawString($Glyph, $font, $fg, $rect, $fmt)
 
     $bg.Dispose(); $fg.Dispose(); $font.Dispose(); $fmt.Dispose(); $g.Dispose()
     $icon = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
@@ -115,8 +130,8 @@ function New-FyndIcon {
     $icon
 }
 
-$script:IconIdle = New-FyndIcon -Background $script:ColorIdle -Foreground ([System.Drawing.Color]::White)
-$script:IconAlert = New-FyndIcon -Background $script:ColorAlert -Foreground ([System.Drawing.Color]::FromArgb(40, 25, 10))
+$script:IconIdle = New-FyndIcon -Background $script:ColorIdle -Foreground ([System.Drawing.Color]::White) -Glyph 'kr' -FontSize 14
+$script:IconAlert = New-FyndIcon -Background $script:ColorAlert -Foreground ([System.Drawing.Color]::White) -Glyph '%' -FontSize 19
 
 # ------------------------------------------------------------------ tray ------
 
@@ -224,7 +239,7 @@ public static class FyndkollFlash
 $script:Form = New-Object System.Windows.Forms.Form
 $script:Form.Text = 'Fyndkoll'
 $script:Form.Icon = $script:IconIdle
-$script:Form.Size = New-Object System.Drawing.Size 760, 420
+$script:Form.Size = New-Object System.Drawing.Size 980, 460
 $script:Form.MinimumSize = New-Object System.Drawing.Size 520, 260
 $script:Form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
 $script:Form.ShowInTaskbar = $true
@@ -234,11 +249,13 @@ $script:List.View = [System.Windows.Forms.View]::Details
 $script:List.FullRowSelect = $true
 $script:List.GridLines = $false
 $script:List.Dock = [System.Windows.Forms.DockStyle]::Fill
-[void]$script:List.Columns.Add('Pris', 90)
-[void]$script:List.Columns.Add('Fynd', 330)
-[void]$script:List.Columns.Add('Butik', 120)
+[void]$script:List.Columns.Add('Pris', 85)
+[void]$script:List.Columns.Add('Fynd', 300)
+[void]$script:List.Columns.Add('Kategori', 115)
+[void]$script:List.Columns.Add('Datum', 85)
+[void]$script:List.Columns.Add('Tid', 50)
+[void]$script:List.Columns.Add('Butik', 130)
 [void]$script:List.Columns.Add('Tråd', 95)
-[void]$script:List.Columns.Add('Tid', 55)
 $script:Form.Controls.Add($script:List)
 
 $script:Status = New-Object System.Windows.Forms.StatusStrip
@@ -256,24 +273,37 @@ function Update-Window {
             if (-not $price) { $price = '' }
             $item = New-Object System.Windows.Forms.ListViewItem $price
             [void]$item.SubItems.Add($find.Title)
+            $category = $find.Category
+            if (-not $category) { $category = '' }
+            [void]$item.SubItems.Add($category)
+            $day = ''
+            $stamp = ''
+            if ($find.CreatedAt -gt 0) {
+                $when = [DateTimeOffset]::FromUnixTimeSeconds([int64]$find.CreatedAt).ToLocalTime()
+                $day = $when.ToString('yyyy-MM-dd')
+                $stamp = $when.ToString('HH:mm')
+            }
+            [void]$item.SubItems.Add($day)
+            [void]$item.SubItems.Add($stamp)
             $store = $find.Store
             if (-not $store) { $store = '' }
             [void]$item.SubItems.Add($store)
             [void]$item.SubItems.Add($find.ThreadLabel)
-            $stamp = ''
-            if ($find.CreatedAt -gt 0) {
-                $stamp = [DateTimeOffset]::FromUnixTimeSeconds([int64]$find.CreatedAt).ToLocalTime().ToString('HH:mm')
-            }
-            [void]$item.SubItems.Add($stamp)
             # Unread finds stand out; the rest are history.
             if ($unreadIds -contains $find.PostId) {
                 $item.Font = New-Object System.Drawing.Font $script:List.Font, ([System.Drawing.FontStyle]::Bold)
                 $item.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#B4610F')
             }
-            $target = $find.DealLink
-            if (-not $target) { $target = $find.Permalink }
-            $item.Tag = [pscustomobject]@{ Open = $target; Post = $find.Permalink; Note = $find.Note }
-            if ($find.Note) { $item.ToolTipText = $find.Note }
+            $shop = $find.DealLink
+            if (-not $shop) { $shop = $find.Permalink }
+            # Hovering shows the post as written; fall back to the trailing note
+            # for state saved before FullText existed.
+            $hover = $find.FullText
+            if (-not $hover) { $hover = $find.Note }
+            $header = @($find.Title, $find.Price) | Where-Object { $_ }
+            $meta = @($find.ThreadLabel, $find.Author) | Where-Object { $_ }
+            $tip = (@(($header -join '  -  '), ($meta -join ' · '), '', $hover) | Where-Object { $null -ne $_ }) -join "`n"
+            $item.Tag = [pscustomobject]@{ Post = $find.Permalink; Shop = $shop; Tip = $tip.Trim() }
             [void]$script:List.Items.Add($item)
         }
     }
@@ -287,6 +317,18 @@ function Update-Window {
     if ($unread -gt 0) { $bits += "$unread olästa" }
     if ($script:LastError) { $bits += "fel: $($script:LastError)" }
     $script:StatusLabel.Text = ($bits -join '  ·  ')
+
+    # The taskbar button is where there is actually room for a word, so that is
+    # where "KAMPANJ!" goes. It sits right next to Word and Excel and is hard to
+    # miss when it is also flashing.
+    if ($unread -gt 0) {
+        $script:Form.Text = "KAMPANJ! $unread nya fynd"
+        $script:Form.Icon = $script:IconAlert
+    }
+    else {
+        $script:Form.Text = 'Fyndkoll'
+        $script:Form.Icon = $script:IconIdle
+    }
 }
 
 function Start-Flash {
@@ -309,19 +351,57 @@ function Show-FyndWindow {
     $script:Form.BringToFront()
 }
 
+# Double-click goes to the fynd post itself - that has the full tip, the poster's
+# comment and any replies. Ctrl+double-click (or Ctrl+Enter) jumps to the shop.
 $script:List.Add_DoubleClick({
         $sel = @($script:List.SelectedItems)
-        if ($sel.Count -gt 0) { Open-Url -Url $sel[0].Tag.Open }
+        if ($sel.Count -eq 0) { return }
+        if ([System.Windows.Forms.Control]::ModifierKeys -band [System.Windows.Forms.Keys]::Control) {
+            Open-Url -Url $sel[0].Tag.Shop
+        }
+        else {
+            Open-Url -Url $sel[0].Tag.Post
+        }
     })
 
-# Enter opens the shop, Ctrl+Enter the forum post.
 $script:List.Add_KeyDown({
         if ($_.KeyCode -eq [System.Windows.Forms.Keys]::Return) {
             $sel = @($script:List.SelectedItems)
             if ($sel.Count -gt 0) {
-                if ($_.Control) { Open-Url -Url $sel[0].Tag.Post } else { Open-Url -Url $sel[0].Tag.Open }
+                if ($_.Control) { Open-Url -Url $sel[0].Tag.Shop } else { Open-Url -Url $sel[0].Tag.Post }
             }
         }
+    })
+
+# A ToolTip shown by hand rather than ListView's own ShowItemToolTips, because
+# the built-in one clips long text and these posts are the whole point.
+$script:Tooltip = New-Object System.Windows.Forms.ToolTip
+$script:Tooltip.InitialDelay = 350
+$script:Tooltip.ReshowDelay = 100
+$script:Tooltip.AutoPopDelay = 32000
+$script:Tooltip.ShowAlways = $true
+$script:TooltipFor = -1
+
+$script:List.Add_MouseMove({
+        $hit = $script:List.HitTest($_.X, $_.Y)
+        $item = $hit.Item
+        if ($null -eq $item) {
+            if ($script:TooltipFor -ne -1) {
+                $script:Tooltip.Hide($script:List)
+                $script:TooltipFor = -1
+            }
+            return
+        }
+        if ($item.Index -ne $script:TooltipFor) {
+            $script:TooltipFor = $item.Index
+            $text = $item.Tag.Tip
+            if ($text) { $script:Tooltip.Show($text, $script:List, ($_.X + 18), ($_.Y + 18), 32000) }
+        }
+    })
+
+$script:List.Add_MouseLeave({
+        $script:Tooltip.Hide($script:List)
+        $script:TooltipFor = -1
     })
 
 # Closing hides the window instead of quitting; quitting is the tray menu's job.
@@ -502,19 +582,19 @@ function Build-Menu {
             if ($find.Price) { $label = "$($find.Price)  -  $($find.Title)" }
             if ($label.Length -gt 70) { $label = $label.Substring(0, 70) + '...' }
             $item = New-Object System.Windows.Forms.ToolStripMenuItem $label
-            $tooltipParts = @($find.ThreadLabel, $find.Store, $find.Note) | Where-Object { $_ }
-            $item.ToolTipText = ($tooltipParts -join "`n")
-            # Prefer the shop; fall back to the forum post.
-            $target = $find.DealLink
-            if (-not $target) { $target = $find.Permalink }
-            $post = $find.Permalink
+            $hover = $find.FullText
+            if (-not $hover) { $hover = $find.Note }
+            $item.ToolTipText = ((@($find.ThreadLabel, $find.Store, $hover) | Where-Object { $_ }) -join "`n")
+            # The post first - it carries the full tip and any replies.
+            $shop = $find.DealLink
+            if (-not $shop) { $shop = $find.Permalink }
             $item.Add_Click({
                     Open-Url -Url $this.Tag
                     Clear-Unread
                 }.GetNewClosure())
-            $item.Tag = $target
-            $sub = New-Object System.Windows.Forms.ToolStripMenuItem 'Visa inlägget'
-            $sub.Tag = $post
+            $item.Tag = $find.Permalink
+            $sub = New-Object System.Windows.Forms.ToolStripMenuItem 'Till butiken'
+            $sub.Tag = $shop
             $sub.Add_Click({ Open-Url -Url $this.Tag }.GetNewClosure())
             [void]$item.DropDownItems.Add($sub)
             [void]$script:Menu.Items.Add($item)
@@ -633,11 +713,7 @@ $script:Menu.Add_Opening({ Build-Menu })
 
 $script:Notify.Add_BalloonTipClicked({
         $first = @($script:State.unread) | Select-Object -First 1
-        if ($first) {
-            $target = $first.DealLink
-            if (-not $target) { $target = $first.Permalink }
-            Open-Url -Url $target
-        }
+        if ($first) { Open-Url -Url $first.Permalink }
         Clear-Unread
     })
 

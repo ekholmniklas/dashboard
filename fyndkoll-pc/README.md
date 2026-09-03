@@ -1,10 +1,8 @@
-| Visa fönster | Tar upp listan med fynd |
-| *(lista med fynd)* | Öppnar butikslänken; undermeny för forumsinlägget |
-| `Fyndkoll-Tray.ps1` | Fönstret, taskbar-knappen, ikonen, menyn, notiserna, timern |
 # Fyndkoll för PC
 
 Liten app som bevakar SweClockers fyndtrådar och säger till när något nytt postas:
-en taskbar-knapp som blinkar, en Windows-notis och en ikon i systemfältet.
+en taskbar-knapp som blinkar och skriver **KAMPANJ!**, en Windows-notis och en
+ikon i systemfältet.
 
 - [Dagens fynd](https://www.sweclockers.com/forum/trad/999559-dagens-fynd-bara-tips-ingen-diskussion-las-forsta-inlagget-forst/sista-sidan)
 - [Övriga fynd](https://www.sweclockers.com/forum/trad/1465406-ovriga-fynd-bara-tips-ingen-diskussion-las-forsta-inlagget-forst/sista-sidan)
@@ -12,27 +10,42 @@ en taskbar-knapp som blinkar, en Windows-notis och en ikon i systemfältet.
 ## Starta
 
 Dubbelklicka **`Start-Fyndkoll.vbs`**. Ingen installation, inget konsollfönster,
-inga admin-rättigheter. En rund ikon med "kr" dyker upp bland ikonerna nere till
-höger.
+inga admin-rättigheter.
 
 Första körningen läser in de inlägg som redan finns *utan* att larma, och säger
-bara "Fyndkoll bevakar nu". Efter det får du en notis så fort något nytt dyker upp.
+bara "Fyndkoll bevakar nu". Efter det kollar den var **10:e minut** och hör av sig
+så fort något nytt dyker upp.
 
-För att den ska starta automatiskt: högerklicka på ikonen → **Starta med Windows**.
+För att den ska starta automatiskt: högerklicka på systemfältsikonen →
+**Starta med Windows**.
 
 ## Vad den gör när något nytt kommer
 
-1. **Taskbar-knappen blinkar orange** — samma knapp som ligger nere bland Word
-   och Excel. Den blinkar tills du faktiskt tar upp fönstret, precis som när
-   Teams vill något.
-2. En Windows-notis: rubriken är produkten, raden under är priset. Är det flera
+1. **Taskbar-knappen byter namn till `KAMPANJ! 2 nya fynd` och blinkar orange** —
+   samma knapp som ligger nere bland Word och Excel. Den blinkar tills du faktiskt
+   tar upp fönstret, precis som när Teams vill något.
+2. **Ikonen byts ut**: från en lugn grå `kr` till en rosa `%`, och blinkar mellan
+   dem. (En tray-ikon är 16×16 px, så ordet "KAMPANJ" får inte plats där — det
+   ligger på taskbar-knappen istället, där det finns utrymme.)
+3. En Windows-notis: rubriken är produkten, raden under är priset. Är det flera
    fynd samtidigt blir det en sammanslagen notis med de fem senaste.
-3. Ikonen i systemfältet blinkar också (grå ⇄ orange), om den är synlig.
 
-Klicka på taskbar-knappen och fönstret listar fynden — pris, produkt, butik,
-tråd och tid. Nya fynd står i fetstil. **Dubbelklicka** en rad för att öppna
-butiken, **Ctrl+Enter** för forumsinlägget. Att titta på fönstret räknas som
-läst, så blinkandet slutar av sig självt.
+Allt slutar blinka när du tar upp fönstret — det räknas som läst.
+
+## Fönstret
+
+| Pris | Fynd | Kategori | Datum | Tid | Butik | Tråd |
+|---|---|---|---|---|---|---|
+| 7128 kr | Dreame Matrix 10 Ultra | Robotdammsugare | 2026-09-01 | 13:37 | komplett.se | Övriga fynd |
+
+Nya fynd står i fetstil och rosa.
+
+| Gör så här | Händer |
+|---|---|
+| **Hovra** över en rad | Tooltip med hela inlägget som det står i tråden |
+| **Dubbelklick** | Öppnar fyndposten på SweClockers |
+| **Ctrl+dubbelklick** | Går direkt till butiken |
+| Enter / Ctrl+Enter | Samma som dubbelklick / Ctrl+dubbelklick |
 
 Stänger du fönstret minimeras det bara — appen fortsätter bevaka. Den avslutas
 via **Avsluta** i högerklicksmenyn på systemfältsikonen.
@@ -48,11 +61,12 @@ så det är mest en smaksak.
 
 | Val | Gör |
 |---|---|
-| *(lista med fynd)* | Öppnar butikslänken; undermeny för forumsinlägget |
+| Visa fönster | Tar upp listan med fynd |
+| *(lista med fynd)* | Öppnar fyndposten; undermeny för butikslänken |
 | Markera alla som lästa | Tömmer listan och slutar blinka |
 | Kolla nu | Kontrollerar direkt istället för att vänta |
 | Öppna tråd | Öppnar någon av trådarna i webbläsaren |
-| Intervall | 5, 10, 15 (standard), 30 eller 60 minuter |
+| Intervall | 5, 10 (standard), 15, 30 eller 60 minuter |
 | Starta med Windows | Lägger en genväg i autostart-mappen |
 | Visa logg | Öppnar loggen, bra vid felsökning |
 | Avsluta | Stänger av |
@@ -62,11 +76,15 @@ så det är mest en smaksak.
 | Fil | Roll |
 |---|---|
 | `Start-Fyndkoll.vbs` | Startar appen utan konsollfönster |
-| `Fyndkoll-Tray.ps1` | Ikonen, menyn, notiserna, timern |
+| `Fyndkoll-Tray.ps1` | Fönstret, taskbar-knappen, ikonen, menyn, notiserna, timern |
 | `FyndParse.ps1` | Hämtar och tolkar trådarna |
 
 Inställningar, "senast sedda inlägg" och loggen ligger i
 `%LOCALAPPDATA%\Fyndkoll\`. Ta bort mappen för att börja om från noll.
+
+> **Ändrar du i `.ps1`-filerna:** spara dem som **UTF-8 med BOM**. Utan BOM läser
+> PowerShell 5.1 dem som ANSI, och då blir `länk`, `mån` och `Tråd` obegripliga —
+> vilket tyst får fältmatchningen att sluta fungera.
 
 ## Hur den läser trådarna
 
@@ -92,9 +110,8 @@ Per inlägg:
 | Författare | `span[itemprop=name]` |
 | Text | `div.message[itemprop=text]`, med `.bbQuote` och `.signature` borttagna |
 
-Fälten `Produkt`, `Pris`, `Kategori`, `Länk` och `Prisjakt` plockas ut. Allt annat
-posteren skrivit sparas som kommentar och visas när notisen fälls ut — det är ofta
-det mest användbara ("Bara 9h kvar", "Power har samma för 124 kr + frakt").
+Fälten `Produkt`, `Pris`, `Kategori`, `Länk` och `Prisjakt` plockas ut. Hela
+inlägget sparas dessutom som `FullText` — det är det du ser när du hovrar.
 
 Priser normaliseras till `7128 kr`. Verifierat mot alla prisformat som faktiskt
 förekommer i trådarna: `369:-`, `1999kr`, `1 279 kr`, `120 kr (ord 177 kr)`,

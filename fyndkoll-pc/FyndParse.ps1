@@ -277,6 +277,11 @@ function Get-FyndPosts {
             Store       = $store
             DealLink    = $dealLink
             Note        = $note
+            # The whole post as written, for the hover tooltip. Signature and
+            # quoted text are already gone; long anchor labels are shortened.
+            FullText    = (($lines | ForEach-Object {
+                        if ($_.StartsWith('http') -and $_.Length -gt 70) { $_.Substring(0, 67) + '...' } else { $_ }
+                    }) -join "`n")
             Permalink   = "$script:FyndBase/forum/post/$postId"
         }
     }
