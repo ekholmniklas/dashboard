@@ -53,6 +53,7 @@ function Get-FyndState {
         intervalMinutes = 10
         unread          = @()
         recent          = @()
+        filter          = 'all'
         seeded          = $false
     }
 }
@@ -80,58 +81,170 @@ function Set-LastSeenFor {
 }
 
 $script:State = Get-FyndState
-# 'recent' was added after the first release; older state files will not have it.
+# 'recent' and 'filter' arrived after the first release, so a state file written
+# by an older build will not have them.
 if (-not $script:State.PSObject.Properties['recent']) {
     $script:State | Add-Member -NotePropertyName recent -NotePropertyValue @()
+}
+if (-not $script:State.PSObject.Properties['filter']) {
+    $script:State | Add-Member -NotePropertyName filter -NotePropertyValue 'all'
 }
 if ($IntervalMinutes -gt 0) { $script:State.intervalMinutes = $IntervalMinutes }
 if (-not $script:State.intervalMinutes -or $script:State.intervalMinutes -lt 1) { $script:State.intervalMinutes = 10 }
 
 # ---------------------------------------------------------------- icons -------
 
-$script:ColorIdle = [System.Drawing.ColorTranslator]::FromHtml('#5D5958')
-# Kampanj-rosa, som på skyltarna i butik.
+<#
+Without an explicit AppUserModelID, Windows 11 attributes this window to
+powershell.exe and shows PowerShell's icon on the taskbar button instead of
+ours. This has to run before the first window is created.
+#>
+if (-not ('FyndkollShell' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class FyndkollShell
+{
+    [DllImport("shell32.dll", SetLastError = true)]
+    private static extern int SetCurrentProcessExplicitAppUserModelID(
+        [MarshalAs(UnmanagedType.LPWStr)] string AppID);
+
+    public static void SetAppId(string id)
+    {
+        try { SetCurrentProcessExplicitAppUserModelID(id); } catch { }
+    }
+}
+'@
+}
+[FyndkollShell]::SetAppId('Ekholm.Fyndkoll')
+
 $script:ColorAlert = [System.Drawing.ColorTranslator]::FromHtml('#D6004F')
 
 <#
-Tray icons are 16x16 once Windows is done with them, so a word like "KAMPANJ"
-is unreadable. The glyph carries the state instead: a calm grey "kr" normally,
-a hot pink "%" when there is something to look at. The word itself goes where
-there is room for it - the taskbar button and the notification.
+The SweClockers mascot, on grey when idle and on kampanj-red when there is
+something new. Multi-size .ico files, so the 16x16 tray version and the larger
+taskbar and alt-tab versions are all properly resampled rather than squashed.
+Generated from https://www.sweclockers.com/gfx/apple-touch-icon.png
 #>
-function New-FyndIcon {
-    param(
-        [System.Drawing.Color]$Background,
-        [System.Drawing.Color]$Foreground,
-        [string]$Glyph = 'kr',
-        [int]$FontSize = 14
-    )
+function Get-FyndIcon {
+    param([string]$FileName, [System.Drawing.Color]$Fallback)
 
+    $path = Join-Path $PSScriptRoot $FileName
+    if (Test-Path $path) {
+        try { return New-Object System.Drawing.Icon $path }
+        catch { Write-FyndLog "could not load $FileName : $($_.Exception.Message)" }
+    }
+    # Drawn fallback, so a missing .ico never stops the app from starting.
     $bmp = New-Object System.Drawing.Bitmap 32, 32
     $g = [System.Drawing.Graphics]::FromImage($bmp)
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-    $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAlias
     $g.Clear([System.Drawing.Color]::Transparent)
-
-    $bg = New-Object System.Drawing.SolidBrush $Background
-    $g.FillEllipse($bg, 0, 0, 31, 31)
-
-    $font = New-Object System.Drawing.Font 'Segoe UI', $FontSize, ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
-    $fg = New-Object System.Drawing.SolidBrush $Foreground
-    $fmt = New-Object System.Drawing.StringFormat
-    $fmt.Alignment = [System.Drawing.StringAlignment]::Center
-    $fmt.LineAlignment = [System.Drawing.StringAlignment]::Center
-    $rect = New-Object System.Drawing.RectangleF 0, 1, 32, 32
-    $g.DrawString($Glyph, $font, $fg, $rect, $fmt)
-
-    $bg.Dispose(); $fg.Dispose(); $font.Dispose(); $fmt.Dispose(); $g.Dispose()
+    $brush = New-Object System.Drawing.SolidBrush $Fallback
+    $g.FillEllipse($brush, 0, 0, 31, 31)
+    $brush.Dispose(); $g.Dispose()
     $icon = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
     $bmp.Dispose()
     $icon
 }
 
-$script:IconIdle = New-FyndIcon -Background $script:ColorIdle -Foreground ([System.Drawing.Color]::White) -Glyph 'kr' -FontSize 14
-$script:IconAlert = New-FyndIcon -Background $script:ColorAlert -Foreground ([System.Drawing.Color]::White) -Glyph '%' -FontSize 19
+$script:IconIdle = Get-FyndIcon -FileName 'fyndkoll.ico' -Fallback ([System.Drawing.ColorTranslator]::FromHtml('#5D5958'))
+$script:IconAlert = Get-FyndIcon -FileName 'fyndkoll-alert.ico' -Fallback $script:ColorAlert
+
+<#
+An unread count drawn onto the icon, like a chat app. Every generated icon holds
+a GDI handle, so they are cached per (count, size, variant) - the set is small
+and bounded because anything above nine collapses to "9+".
+
+The mascot is taken from the PNG masters rather than from the .ico files:
+Icon.ToBitmap() garbles PNG-compressed icon frames on .NET Framework and turns
+the mascot into coloured noise.
+#>
+$script:BadgeCache = @{}
+
+function Get-MascotBitmap {
+    param([switch]$Alert)
+
+    $key = if ($Alert) { 'png-a' } else { 'png-i' }
+    if ($script:BadgeCache.ContainsKey($key)) { return $script:BadgeCache[$key] }
+
+    $name = if ($Alert) { 'mascot-alert.png' } else { 'mascot.png' }
+    $path = Join-Path $PSScriptRoot $name
+    $bmp = $null
+    if (Test-Path $path) {
+        try { $bmp = New-Object System.Drawing.Bitmap $path }
+        catch { Write-FyndLog "could not load $name : $($_.Exception.Message)" }
+    }
+    if (-not $bmp) {
+        # Last resort: a plain disc, so a badge still renders.
+        $bmp = New-Object System.Drawing.Bitmap 256, 256, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $colour = if ($Alert) { $script:ColorAlert } else { [System.Drawing.ColorTranslator]::FromHtml('#5D5958') }
+        $brush = New-Object System.Drawing.SolidBrush $colour
+        $g.FillEllipse($brush, 0, 0, 255, 255)
+        $brush.Dispose(); $g.Dispose()
+    }
+    $script:BadgeCache[$key] = $bmp
+    $bmp
+}
+
+function Get-BadgedIcon {
+    param(
+        [Parameter(Mandatory)][int]$Count,
+        [int]$Size = 32,
+        [switch]$Alert
+    )
+
+    if ($Count -le 0) { if ($Alert) { return $script:IconAlert } else { return $script:IconIdle } }
+
+    $variant = if ($Alert) { 'a' } else { 'i' }
+    $label = if ($Count -gt 9) { '9+' } else { [string]$Count }
+    $key = "$variant-$Size-$label"
+    if ($script:BadgeCache.ContainsKey($key)) { return $script:BadgeCache[$key] }
+
+    $base = Get-MascotBitmap -Alert:$Alert
+    $bmp = New-Object System.Drawing.Bitmap $Size, $Size, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    try {
+        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
+        $g.Clear([System.Drawing.Color]::Transparent)
+
+        # The mascot, shrunk a little to leave room for the badge.
+        $inset = [int][Math]::Round($Size * 0.12)
+        $g.DrawImage($base, (New-Object System.Drawing.Rectangle 0, 0, ($Size - $inset), ($Size - $inset)))
+
+        # Badge: white ring so it reads on both the grey and the red mascot.
+        $d = [int][Math]::Round($Size * 0.60)
+        $x = $Size - $d
+        $y = $Size - $d
+        $ring = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::White)
+        $g.FillEllipse($ring, $x, $y, ($d - 1), ($d - 1))
+        $fill = New-Object System.Drawing.SolidBrush ([System.Drawing.ColorTranslator]::FromHtml('#E01B24'))
+        $pad = [Math]::Max(1, [int][Math]::Round($Size * 0.055))
+        $g.FillEllipse($fill, ($x + $pad), ($y + $pad), ($d - 1 - 2 * $pad), ($d - 1 - 2 * $pad))
+
+        $fontSize = [Math]::Max(6.0, $d * 0.62)
+        if ($label.Length -gt 1) { $fontSize = $fontSize * 0.72 }
+        $font = New-Object System.Drawing.Font 'Segoe UI', $fontSize, ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
+        $fmt = New-Object System.Drawing.StringFormat
+        $fmt.Alignment = [System.Drawing.StringAlignment]::Center
+        $fmt.LineAlignment = [System.Drawing.StringAlignment]::Center
+        $textRect = New-Object System.Drawing.RectangleF $x, ($y + $pad * 0.2), ($d - 1), ($d - 1)
+        $white = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::White)
+        $g.DrawString($label, $font, $white, $textRect, $fmt)
+
+        $ring.Dispose(); $fill.Dispose(); $white.Dispose(); $font.Dispose(); $fmt.Dispose()
+    }
+    finally { $g.Dispose() }
+
+    $icon = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+    $bmp.Dispose()
+    $script:BadgeCache[$key] = $icon
+    $icon
+}
 
 # ------------------------------------------------------------------ tray ------
 
@@ -164,6 +277,15 @@ function Set-TrayTooltip {
     $script:Notify.Text = $text
 }
 
+# The resting icon follows the unread count, not the blink state: stopping the
+# blink should leave the red mascot, with its count, in place while finds are
+# still unread.
+function Set-TrayIcon {
+    $unread = @($script:State.unread).Count
+    if ($unread -gt 0) { $script:Notify.Icon = Get-BadgedIcon -Count $unread -Size 32 -Alert }
+    else { $script:Notify.Icon = $script:IconIdle }
+}
+
 function Start-Blink {
     if ($script:Blinking) { return }
     $script:Blinking = $true
@@ -173,7 +295,7 @@ function Start-Blink {
 function Stop-Blink {
     $script:Blinking = $false
     $script:BlinkTimer.Stop()
-    $script:Notify.Icon = $script:IconIdle
+    Set-TrayIcon
 }
 
 function Open-Url {
@@ -271,9 +393,9 @@ $script:List.View = [System.Windows.Forms.View]::Details
 $script:List.FullRowSelect = $true
 $script:List.GridLines = $false
 $script:List.Dock = [System.Windows.Forms.DockStyle]::Fill
-[void]$script:List.Columns.Add('Pris', 85)
 [void]$script:List.Columns.Add('Fynd', 300)
 [void]$script:List.Columns.Add('Kategori', 115)
+[void]$script:List.Columns.Add('Pris', 90)
 [void]$script:List.Columns.Add('Datum', 85)
 [void]$script:List.Columns.Add('Tid', 50)
 [void]$script:List.Columns.Add('Butik', 130)
@@ -293,6 +415,34 @@ $script:RefreshButton.DisplayStyle = [System.Windows.Forms.ToolStripItemDisplayS
 $script:RefreshButton.ToolTipText = 'Kolla trådarna nu'
 $script:RefreshButton.Add_Click({ Start-FyndCheck })
 [void]$script:Bar.Items.Add($script:RefreshButton)
+
+[void]$script:Bar.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+
+# Which thread the list shows. 'all', or a thread id as a string.
+$script:FilterButton = New-Object System.Windows.Forms.ToolStripDropDownButton
+$script:FilterButton.DisplayStyle = [System.Windows.Forms.ToolStripItemDisplayStyle]::Text
+$script:FilterButton.ToolTipText = 'Visa bara en av trådarna'
+
+function Set-FyndFilter {
+    param([string]$Value)
+    $script:State.filter = $Value
+    Save-FyndState -State $script:State
+    Update-Window
+}
+
+$script:FilterChoices = @(
+    [pscustomobject]@{ Value = 'all'; Label = 'Allt' }
+) + @($script:FyndThreads | ForEach-Object {
+        [pscustomobject]@{ Value = [string]$_.Id; Label = $_.Label }
+    })
+
+foreach ($choice in $script:FilterChoices) {
+    $mi = New-Object System.Windows.Forms.ToolStripMenuItem $choice.Label
+    $mi.Tag = $choice.Value
+    $mi.Add_Click({ Set-FyndFilter -Value ([string]$this.Tag) }.GetNewClosure())
+    [void]$script:FilterButton.DropDownItems.Add($mi)
+}
+[void]$script:Bar.Items.Add($script:FilterButton)
 
 [void]$script:Bar.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
 
@@ -335,14 +485,19 @@ function Update-Window {
     try {
         $script:List.Items.Clear()
         $unreadIds = @(@($script:State.unread) | ForEach-Object { $_.PostId })
-        foreach ($find in @($script:State.recent)) {
-            $price = $find.Price
-            if (-not $price) { $price = '' }
-            $item = New-Object System.Windows.Forms.ListViewItem $price
-            [void]$item.SubItems.Add($find.Title)
+        $rows = @($script:State.recent)
+        if ($script:State.filter -and $script:State.filter -ne 'all') {
+            $rows = @($rows | Where-Object { [string]$_.ThreadId -eq [string]$script:State.filter })
+        }
+        foreach ($find in $rows) {
+            # Column 0 is the row's own text, so Fynd has to be first.
+            $item = New-Object System.Windows.Forms.ListViewItem $find.Title
             $category = $find.Category
             if (-not $category) { $category = '' }
             [void]$item.SubItems.Add($category)
+            $price = $find.Price
+            if (-not $price) { $price = '' }
+            [void]$item.SubItems.Add($price)
             $day = ''
             $stamp = ''
             $ageDays = -1
@@ -400,7 +555,7 @@ function Update-Window {
     # miss when it is also flashing.
     if ($unread -gt 0) {
         $script:Form.Text = "KAMPANJ! $unread nya fynd"
-        $script:Form.Icon = $script:IconAlert
+        $script:Form.Icon = Get-BadgedIcon -Count $unread -Size 64 -Alert
     }
     else {
         $script:Form.Text = 'Fyndkoll'
@@ -414,6 +569,17 @@ function Update-Bar {
     if ($script:Checking) { $script:RefreshButton.Text = 'Uppdaterar...' }
     else { $script:RefreshButton.Text = 'Uppdatera' }
     $script:MarkReadButton.Enabled = (@($script:State.unread).Count -gt 0)
+
+    if ($script:FilterButton) {
+        $current = [string]$script:State.filter
+        if (-not $current) { $current = 'all' }
+        $match = @($script:FilterChoices | Where-Object { $_.Value -eq $current }) | Select-Object -First 1
+        $name = if ($match) { $match.Label } else { 'Allt' }
+        $script:FilterButton.Text = "Visar: $name"
+        foreach ($mi in $script:FilterButton.DropDownItems) {
+            $mi.Checked = ([string]$mi.Tag -eq $current)
+        }
+    }
 }
 
 function Start-Flash {
@@ -790,8 +956,9 @@ $script:BlinkTimer = New-Object System.Windows.Forms.Timer
 $script:BlinkTimer.Interval = 650
 $script:BlinkTimer.Add_Tick({
         $script:BlinkOn = -not $script:BlinkOn
-        if ($script:BlinkOn) { $script:Notify.Icon = $script:IconAlert }
-        else { $script:Notify.Icon = $script:IconIdle }
+        $unread = @($script:State.unread).Count
+        if ($script:BlinkOn) { $script:Notify.Icon = Get-BadgedIcon -Count $unread -Size 32 -Alert }
+        else { $script:Notify.Icon = Get-BadgedIcon -Count $unread -Size 32 }
     })
 
 # ---------------------------------------------------------------- events ------
@@ -823,6 +990,7 @@ if (-not $script:Mutex.WaitOne(0, $false)) {
 
 Write-FyndLog "started (interval $($script:State.intervalMinutes) min)"
 Set-TrayTooltip
+Set-TrayIcon
 
 # Shown-but-minimised gives a taskbar button next to Word and Excel, which is
 # what actually flashes when a find turns up. Closing it minimises again.

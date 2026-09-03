@@ -21,26 +21,33 @@ För att den ska starta automatiskt: högerklicka på systemfältsikonen →
 
 ## Vad den gör när något nytt kommer
 
-1. **Taskbar-knappen byter namn till `KAMPANJ! 2 nya fynd` och blinkar orange** —
+1. **Ikonen byts ut** — SweClockers-maskoten går från grå till kampanjröd, och
+   får en **siffra** som visar hur många olästa fynd det finns, som i en chattapp.
+   Fler än nio visas som `9+`. Den blinkar dessutom mellan grå och röd.
+2. **Taskbar-knappen byter namn till `KAMPANJ! 2 nya fynd` och blinkar orange** —
    samma knapp som ligger nere bland Word och Excel. Den blinkar tills du faktiskt
    tar upp fönstret, precis som när Teams vill något.
-2. **Ikonen byts ut**: från en lugn grå `kr` till en rosa `%`, och blinkar mellan
-   dem. (En tray-ikon är 16×16 px, så ordet "KAMPANJ" får inte plats där — det
-   ligger på taskbar-knappen istället, där det finns utrymme.)
 3. En Windows-notis: rubriken är produkten, raden under är priset. Är det flera
    fynd samtidigt blir det en sammanslagen notis med de fem senaste.
 
-Allt slutar blinka när du tar upp fönstret — det räknas som läst.
+Allt slutar blinka när du tar upp fönstret — det räknas som läst. Siffran och den
+röda ikonen sitter kvar så länge det finns olästa, även om blinkandet stoppats.
 
 ## Fönstret
 
-| Pris | Fynd | Kategori | Datum | Tid | Butik | Tråd |
+| Fynd | Kategori | Pris | Datum | Tid | Butik | Tråd |
 |---|---|---|---|---|---|---|
-| 7128 kr | Dreame Matrix 10 Ultra | Robotdammsugare | 2026-09-01 | 13:37 | komplett.se | Övriga fynd |
+| Dreame Matrix 10 Ultra | Robotdammsugare | 7128 kr | 2026-09-01 | 13:37 | komplett.se | Övriga fynd |
 
-Överst finns **Uppdatera** (kollar direkt istället för att vänta ut intervallet —
-knappen står som "Uppdaterar..." medan den jobbar) och **Markera alla som lästa**.
-Bredvid ligger färglegenden.
+Överst i fönstret finns:
+
+| Knapp | Gör |
+|---|---|
+| **Uppdatera** | Kollar direkt istället för att vänta ut intervallet. Står som "Uppdaterar..." medan den jobbar |
+| **Visar: Allt** | Filtrerar listan: *Allt*, *Dagens fynd* eller *Övriga fynd*. Valet sparas |
+| **Markera alla som lästa** | Tömmer olästa, släcker siffran och stoppar blinkandet |
+
+Längst till höger ligger färglegenden.
 
 ### Färgerna
 
@@ -96,6 +103,8 @@ så det är mest en smaksak.
 | `Start-Fyndkoll.vbs` | Startar appen utan konsollfönster |
 | `Fyndkoll-Tray.ps1` | Fönstret, taskbar-knappen, ikonen, menyn, notiserna, timern |
 | `FyndParse.ps1` | Hämtar och tolkar trådarna |
+| `fyndkoll.ico` / `fyndkoll-alert.ico` | Ikonerna: maskoten på grått respektive rött, i sju storlekar |
+| `mascot.png` / `mascot-alert.png` | Samma bilder som PNG. Siffran ritas ovanpå dessa, eftersom `Icon.ToBitmap()` förstör PNG-komprimerade ICO-bildrutor |
 
 Inställningar, "senast sedda inlägg" och loggen ligger i
 `%LOCALAPPDATA%\Fyndkoll\`. Ta bort mappen för att börja om från noll.
