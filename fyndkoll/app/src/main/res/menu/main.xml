@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/action_refresh"
+        android:title="@string/action_refresh"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_interval"
+        android:title="@string/action_interval"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_test"
+        android:title="@string/action_test"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_threads"
+        android:title="@string/action_threads"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_notification_settings"
+        android:title="@string/action_notification_settings"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_battery"
+        android:title="@string/action_battery"
+        app:showAsAction="never" />
+</menu>

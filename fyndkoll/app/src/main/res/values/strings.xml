@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Fyndkoll</string>
+
+    <string name="channel_finds">Nya fynd</string>
+    <string name="channel_finds_desc">Larm när ett nytt tips dyker upp i fyndtrådarna.</string>
+    <string name="channel_status">Status</string>
+    <string name="channel_status_desc">Tysta meddelanden om bevakningen.</string>
+
+    <string name="notification_subtext">FYND</string>
+
+    <string name="action_open_shop">Till butiken</string>
+    <string name="action_open_shop_named">Till %1$s</string>
+    <string name="action_open_post">Visa inlägget</string>
+    <string name="action_refresh">Uppdatera</string>
+    <string name="action_interval">Kontrollintervall</string>
+    <string name="action_test">Testnotis</string>
+    <string name="action_threads">Öppna tråd</string>
+    <string name="action_notification_settings">Notisinställningar</string>
+    <string name="action_battery">Batterioptimering</string>
+    <string name="action_settings">Inställningar</string>
+
+    <plurals name="new_finds">
+        <item quantity="one">%d nytt fynd</item>
+        <item quantity="other">%d nya fynd</item>
+    </plurals>
+    <string name="and_more">+%d fler</string>
+
+    <string name="seeded_title">Fyndkoll är igång</string>
+    <string name="seeded_body">Bevakar Dagens fynd och Övriga fynd. Läste in %1$d befintliga inlägg — härifrån får du en notis så fort något nytt postas.</string>
+
+    <string name="status_line">Senast kollat %1$s · var %2$d min</string>
+    <string name="status_blocked">notiser avstängda</string>
+    <string name="status_error">fel: %1$s</string>
+    <string name="never">aldrig</string>
+
+    <string name="refresh_failed">Kunde inte hämta: %1$s</string>
+    <string name="notifications_denied">Utan notistillstånd kan appen inte larma om nya fynd.</string>
+    <string name="battery_already_ok">Fyndkoll är redan undantagen från batterioptimering.</string>
+    <string name="no_app_for_intent">Ingen app kan öppna det.</string>
+
+    <string name="interval_minutes">Var %d min</string>
+    <string name="interval_hours">Var %d h</string>
+
+    <string name="empty_text">Inga fynd hämtade än.\nDra nedåt för att uppdatera.</string>
+</resources>

@@ -1,0 +1,83 @@
+name: Build Fyndkoll APK
+
+on:
+  push:
+    paths:
+      - 'fyndkoll/**'
+      - '.github/workflows/build-fyndkoll.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fyndkoll
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Build debug APK
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Rename APK
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk "out/fyndkoll-${{ github.run_number }}.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk out/fyndkoll-latest.apk
+          ls -lh out
+
+      - name: Summary
+        run: |
+          {
+            echo "### Fyndkoll APK built"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Build | ${{ github.run_number }} |"
+            echo "| Size | $(du -h out/fyndkoll-latest.apk | cut -f1) |"
+            echo ""
+            echo "Download it from the **fyndkoll-latest** release, or the artifact below."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fyndkoll-apk
+          path: fyndkoll/out/fyndkoll-latest.apk
+          if-no-files-found: error
+
+      # A release asset is a direct .apk link, which is what makes it a single tap
+      # to install from the phone. Artifacts arrive as a zip and need a login.
+      - name: Publish to the fyndkoll-latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: fyndkoll-latest
+          name: Fyndkoll (senaste bygget)
+          body: |
+            Debug-signerad APK, byggd från `fyndkoll/` i build ${{ github.run_number }}
+            (commit ${{ github.sha }}).
+
+            Öppna den här sidan i telefonen och tryck på `fyndkoll-latest.apk`.
+          files: fyndkoll/out/fyndkoll-latest.apk
+          make_latest: false

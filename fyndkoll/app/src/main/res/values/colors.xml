@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Taken from the SweClockers logo. -->
+    <color name="swec_orange">#F3994E</color>
+    <color name="swec_orange_dark">#C2762F</color>
+    <color name="swec_grey">#5D5958</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="black">#FF000000</color>
+</resources>
