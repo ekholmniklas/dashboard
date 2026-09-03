@@ -38,7 +38,25 @@ Allt slutar blinka när du tar upp fönstret — det räknas som läst.
 |---|---|---|---|---|---|---|
 | 7128 kr | Dreame Matrix 10 Ultra | Robotdammsugare | 2026-09-01 | 13:37 | komplett.se | Övriga fynd |
 
-Nya fynd står i fetstil och rosa.
+Överst finns **Uppdatera** (kollar direkt istället för att vänta ut intervallet —
+knappen står som "Uppdaterar..." medan den jobbar) och **Markera alla som lästa**.
+Bredvid ligger färglegenden.
+
+### Färgerna
+
+Raderna färgas efter ålder, så man ser direkt vad som är färskt:
+
+| Färg | Betyder |
+|---|---|
+| **Grön, fet** | Nytt sedan du senast tittade |
+| Ljusgrön | Postat idag |
+| Ljusblå | 1–2 dagar |
+| Ljusgul | 3–8 dagar |
+| Rosa | 9–20 dagar |
+| Röd | 21 dagar eller äldre |
+
+Grönt vinner över åldersfärgen — det är det du inte har sett än. Åldern räknas i
+hela kalenderdygn, så "igår" är 1 dag oavsett klockslag.
 
 | Gör så här | Händer |
 |---|---|

@@ -244,6 +244,28 @@ $script:Form.MinimumSize = New-Object System.Drawing.Size 520, 260
 $script:Form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
 $script:Form.ShowInTaskbar = $true
 
+# Row colours. Unread finds get a solid green whatever their age; everything else
+# is shaded by how old the post is, so freshness is readable at a glance.
+$script:ColorNewBack = [System.Drawing.ColorTranslator]::FromHtml('#8FE3A6')
+$script:ColorNewText = [System.Drawing.ColorTranslator]::FromHtml('#0B4A1D')
+
+# Upper bound in days (inclusive) -> background, foreground.
+$script:AgeBands = @(
+    [pscustomobject]@{ MaxDays = 0;  Back = '#EAF9EE'; Text = '#24492F'; Label = 'Idag' }
+    [pscustomobject]@{ MaxDays = 2;  Back = '#E6F1FC'; Text = '#1C3B57'; Label = '1-2 d' }
+    [pscustomobject]@{ MaxDays = 8;  Back = '#FDF6D9'; Text = '#544612'; Label = '3-8 d' }
+    [pscustomobject]@{ MaxDays = 20; Back = '#FBE4E8'; Text = '#5E2028'; Label = '9-20 d' }
+    [pscustomobject]@{ MaxDays = [int]::MaxValue; Back = '#F3B6BD'; Text = '#6B1220'; Label = '21+ d' }
+)
+
+function Get-AgeBand {
+    param([int]$AgeDays)
+    foreach ($band in $script:AgeBands) {
+        if ($AgeDays -le $band.MaxDays) { return $band }
+    }
+    $script:AgeBands[-1]
+}
+
 $script:List = New-Object System.Windows.Forms.ListView
 $script:List.View = [System.Windows.Forms.View]::Details
 $script:List.FullRowSelect = $true
@@ -256,12 +278,57 @@ $script:List.Dock = [System.Windows.Forms.DockStyle]::Fill
 [void]$script:List.Columns.Add('Tid', 50)
 [void]$script:List.Columns.Add('Butik', 130)
 [void]$script:List.Columns.Add('Tråd', 95)
-$script:Form.Controls.Add($script:List)
 
 $script:Status = New-Object System.Windows.Forms.StatusStrip
 $script:StatusLabel = New-Object System.Windows.Forms.ToolStripStatusLabel
 [void]$script:Status.Items.Add($script:StatusLabel)
+
+$script:Bar = New-Object System.Windows.Forms.ToolStrip
+$script:Bar.GripStyle = [System.Windows.Forms.ToolStripGripStyle]::Hidden
+$script:Bar.RenderMode = [System.Windows.Forms.ToolStripRenderMode]::System
+
+$script:RefreshButton = New-Object System.Windows.Forms.ToolStripButton
+$script:RefreshButton.Text = 'Uppdatera'
+$script:RefreshButton.DisplayStyle = [System.Windows.Forms.ToolStripItemDisplayStyle]::Text
+$script:RefreshButton.ToolTipText = 'Kolla trådarna nu'
+$script:RefreshButton.Add_Click({ Start-FyndCheck })
+[void]$script:Bar.Items.Add($script:RefreshButton)
+
+[void]$script:Bar.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+
+$script:MarkReadButton = New-Object System.Windows.Forms.ToolStripButton
+$script:MarkReadButton.Text = 'Markera alla som lästa'
+$script:MarkReadButton.DisplayStyle = [System.Windows.Forms.ToolStripItemDisplayStyle]::Text
+$script:MarkReadButton.Add_Click({ Clear-Unread })
+[void]$script:Bar.Items.Add($script:MarkReadButton)
+
+[void]$script:Bar.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+
+# Coloured chips beat explaining the scale in words.
+function Add-LegendChip {
+    param([string]$Text, [string]$Back, [string]$Fore, [bool]$Bold = $false)
+    $chip = New-Object System.Windows.Forms.ToolStripLabel
+    $chip.Text = " $Text "
+    $chip.BackColor = [System.Drawing.ColorTranslator]::FromHtml($Back)
+    $chip.ForeColor = [System.Drawing.ColorTranslator]::FromHtml($Fore)
+    $chip.Margin = New-Object System.Windows.Forms.Padding 0, 3, 3, 3
+    if ($Bold) {
+        $chip.Font = New-Object System.Drawing.Font $script:Bar.Font, ([System.Drawing.FontStyle]::Bold)
+    }
+    [void]$script:Bar.Items.Add($chip)
+}
+
+Add-LegendChip -Text 'Nytt' -Back '#8FE3A6' -Fore '#0B4A1D' -Bold $true
+foreach ($band in $script:AgeBands) {
+    Add-LegendChip -Text $band.Label -Back $band.Back -Fore $band.Text
+}
+
+# Order matters and is the opposite of what you would guess: docking is resolved
+# last-added-first, so the Fill control has to go in FIRST or it claims the whole
+# client area and the toolbar ends up drawn on top of the list.
+$script:Form.Controls.Add($script:List)
 $script:Form.Controls.Add($script:Status)
+$script:Form.Controls.Add($script:Bar)
 
 function Update-Window {
     $script:List.BeginUpdate()
@@ -278,10 +345,13 @@ function Update-Window {
             [void]$item.SubItems.Add($category)
             $day = ''
             $stamp = ''
+            $ageDays = -1
             if ($find.CreatedAt -gt 0) {
                 $when = [DateTimeOffset]::FromUnixTimeSeconds([int64]$find.CreatedAt).ToLocalTime()
                 $day = $when.ToString('yyyy-MM-dd')
                 $stamp = $when.ToString('HH:mm')
+                # Whole calendar days, so "igår" is 1 regardless of the clock.
+                $ageDays = [int]((Get-Date).Date - $when.Date).TotalDays
             }
             [void]$item.SubItems.Add($day)
             [void]$item.SubItems.Add($stamp)
@@ -289,10 +359,16 @@ function Update-Window {
             if (-not $store) { $store = '' }
             [void]$item.SubItems.Add($store)
             [void]$item.SubItems.Add($find.ThreadLabel)
-            # Unread finds stand out; the rest are history.
+            # Unread wins over age: it is the one thing you have not looked at yet.
             if ($unreadIds -contains $find.PostId) {
+                $item.BackColor = $script:ColorNewBack
+                $item.ForeColor = $script:ColorNewText
                 $item.Font = New-Object System.Drawing.Font $script:List.Font, ([System.Drawing.FontStyle]::Bold)
-                $item.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#B4610F')
+            }
+            elseif ($ageDays -ge 0) {
+                $band = Get-AgeBand -AgeDays $ageDays
+                $item.BackColor = [System.Drawing.ColorTranslator]::FromHtml($band.Back)
+                $item.ForeColor = [System.Drawing.ColorTranslator]::FromHtml($band.Text)
             }
             $shop = $find.DealLink
             if (-not $shop) { $shop = $find.Permalink }
@@ -317,6 +393,7 @@ function Update-Window {
     if ($unread -gt 0) { $bits += "$unread olästa" }
     if ($script:LastError) { $bits += "fel: $($script:LastError)" }
     $script:StatusLabel.Text = ($bits -join '  ·  ')
+    Update-Bar
 
     # The taskbar button is where there is actually room for a word, so that is
     # where "KAMPANJ!" goes. It sits right next to Word and Excel and is hard to
@@ -329,6 +406,14 @@ function Update-Window {
         $script:Form.Text = 'Fyndkoll'
         $script:Form.Icon = $script:IconIdle
     }
+}
+
+function Update-Bar {
+    if (-not $script:RefreshButton) { return }
+    $script:RefreshButton.Enabled = -not $script:Checking
+    if ($script:Checking) { $script:RefreshButton.Text = 'Uppdaterar...' }
+    else { $script:RefreshButton.Text = 'Uppdatera' }
+    $script:MarkReadButton.Enabled = (@($script:State.unread).Count -gt 0)
 }
 
 function Start-Flash {
@@ -429,6 +514,7 @@ function Start-FyndCheck {
     if ($script:Checking) { return }
     $script:Checking = $true
     Set-TrayTooltip
+    Update-Bar
 
     $seen = @{}
     foreach ($t in $script:FyndThreads) { $seen[[string]$t.Id] = Get-LastSeenFor -State $script:State -ThreadId $t.Id }
@@ -470,6 +556,7 @@ function Complete-FyndCheck {
     $script:WatchTimer.Stop()
     $script:Pending = $null
     $script:Checking = $false
+    Update-Bar
 
     $json = $null
     try {
