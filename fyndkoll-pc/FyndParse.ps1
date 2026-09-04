@@ -290,12 +290,18 @@ function Get-FyndPosts {
 }
 
 <#
-Posts from the end of a thread. One request to /sista-sidan is normally enough
-(a page holds ~29 posts); if every post on that page is newer than $LastSeen we
-may have missed some, so walk back a few pages.
+Posts from the end of a thread.
+
+$MinPages exists because /sista-sidan is whatever page the thread happens to be
+on, and a page that has just rolled over holds a single post. Reading two pages
+means the list is useful straight away instead of depending on where the page
+boundary fell.
+
+$MaxExtraPages is the catch-up path: if every post we found is newer than
+$LastSeen, posts may have been missed between two checks, so keep walking back.
 #>
 function Get-FyndThreadPosts {
-    param($Thread, [int64]$LastSeen = 0, [int]$MaxExtraPages = 3)
+    param($Thread, [int64]$LastSeen = 0, [int]$MaxExtraPages = 3, [int]$MinPages = 2)
 
     $page = Get-FyndPage -Url (Get-FyndLastPageUrl $Thread)
     $collected = @(Get-FyndPosts -Html $page.Html -Thread $Thread)
@@ -305,8 +311,12 @@ function Get-FyndThreadPosts {
     if ($pm.Success) { $pageNo = [int]$pm.Groups[1].Value }
 
     $extra = 0
-    while ($LastSeen -gt 0 -and $pageNo -and $pageNo -gt 1 -and $extra -lt $MaxExtraPages -and
-        $collected.Count -gt 0 -and (($collected | Measure-Object -Property PostId -Minimum).Minimum -gt $LastSeen)) {
+    while ($pageNo -and $pageNo -gt 1 -and $extra -lt $MaxExtraPages) {
+        $needMore = (($extra + 1) -lt $MinPages)
+        $behind = ($LastSeen -gt 0 -and $collected.Count -gt 0 -and
+            (($collected | Measure-Object -Property PostId -Minimum).Minimum -gt $LastSeen))
+        if (-not ($needMore -or $behind)) { break }
+
         $pageNo--
         $extra++
         $older = @(Get-FyndPosts -Html (Get-FyndPage -Url (Get-FyndPageUrl $Thread $pageNo)).Html -Thread $Thread)

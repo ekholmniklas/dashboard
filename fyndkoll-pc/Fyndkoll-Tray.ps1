@@ -760,8 +760,12 @@ function Complete-FyndCheck {
     $script:LastError = if ($errors.Count -gt 0) { $errors -join '; ' } else { $null }
     $script:LastCheck = Get-Date
 
-    # Everything the window lists, unread or not.
-    $script:State.recent = @($posts | Sort-Object PostId -Descending -Unique | Select-Object -First 40)
+    # Everything the window lists, unread or not. Merged rather than replaced:
+    # a thread that has just rolled onto a new page returns almost nothing, and
+    # overwriting would throw away the history that is already on screen.
+    $script:State.recent = @(@($posts) + @($script:State.recent)) |
+        Sort-Object PostId -Descending -Unique |
+        Select-Object -First 80
 
     $isFirstRun = -not $script:State.seeded
     $fresh = @()

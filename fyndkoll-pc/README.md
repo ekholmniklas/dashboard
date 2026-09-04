@@ -158,9 +158,17 @@ förekommer i trådarna: `369:-`, `1999kr`, `1 279 kr`, `120 kr (ord 177 kr)`,
 Inlägg som inte följer mallen får en notis ändå: rubriken blir första meningsfulla
 textraden och priset första pris-liknande talet i texten.
 
-"Nytt sedan sist" avgörs på `postid`, som växer monotont. Normalt räcker sista
-sidan (~29 inlägg); om varje inlägg där är nyare än det senast sedda backar appen
-upp till tre sidor för att inte tappa något.
+"Nytt sedan sist" avgörs på `postid`, som växer monotont.
+
+**Appen läser två sidor per tråd, inte en.** `/sista-sidan` ger den sida tråden
+råkar ligga på, och en sida som just rullat över innehåller ett enda inlägg — då
+blir listan i praktiken tom. Med två sidor blir den användbar direkt oavsett var
+sidbrytningen hamnar. Om *alla* inlägg som hittas är nyare än det senast sedda kan
+något ha missats mellan två koller, och då backar appen upp till tre sidor extra.
+
+**Listan byggs på, den skrivs inte över.** Varje koll slås de hämtade inläggen
+samman med de som redan finns sparade (de 80 senaste behålls). Annars försvann
+historiken varje gång en tråd bytte sida.
 
 ## Bra att veta
 
