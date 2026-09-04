@@ -46,9 +46,13 @@ function Stop-Fyndkoll {
 
 if ($Uninstall) {
     Stop-Fyndkoll
+    if (Get-ScheduledTask -TaskName 'Fyndkoll' -ErrorAction SilentlyContinue) {
+        Unregister-ScheduledTask -TaskName 'Fyndkoll' -Confirm:$false
+        Write-Host "Schemalagt jobb borttaget."
+    }
     if (Test-Path $startupLink) {
         Remove-Item $startupLink -Force
-        Write-Host "Autostart borttagen."
+        Write-Host "Startup-genvag borttagen."
     }
     if (Test-Path $target) {
         Remove-Item $target -Recurse -Force
@@ -89,16 +93,57 @@ foreach ($name in $files) {
 if ($bad.Count) { throw "Fortfarande platshallare: $($bad -join ', ')" }
 
 if (-not $NoAutoStart) {
+    $vbs = Join-Path $target 'Start-Fyndkoll.vbs'
+
+    # Primar mekanism: ett schemalagt jobb vid inloggning. Startup-mappen visade
+    # sig opalitlig pa den har maskinen - genvagen var giltig, filen lokal, inget
+    # avstangt, men Explorer korde den aldrig. Ett schemalagt jobb hanger inte pa
+    # Explorer, kan fordroja starten och gar att inspektera i Schemalaggaren.
+    Write-Host ""
+    try {
+        # PowerShell startas direkt, utan wscript i mitten. Under Schemalaggaren
+        # levde wscript i 8 sekunder och dog med 0x80070001 utan att appen ens
+        # hann logga - trots att exakt samma .vbs kor felfritt manuellt. Ett lager
+        # mindre ar ett fel mindre; .vbs-filen finns kvar for dubbelklick.
+        # Ingen WorkingDirectory: med en satt letar Schemalaggaren efter programmet
+        # DAR och far 0x8007010B ("The directory name is invalid").
+        $psExe = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $psArgs = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -STA -File "{0}"' -f (Join-Path $target 'Fyndkoll-Tray.ps1')
+        $action = New-ScheduledTaskAction -Execute $psExe -Argument $psArgs
+        $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+        # En halv minut sa att profil och natverk hunnit upp.
+        $trigger.Delay = 'PT30S'
+        $settings = New-ScheduledTaskSettingsSet `
+            -AllowStartIfOnBatteries `
+            -DontStopIfGoingOnBatteries `
+            -StartWhenAvailable `
+            -ExecutionTimeLimit ([TimeSpan]::Zero) `
+            -MultipleInstances IgnoreNew
+        $principal = New-ScheduledTaskPrincipal `
+            -UserId "$env:USERDOMAIN\$env:USERNAME" `
+            -LogonType Interactive `
+            -RunLevel Limited
+        Register-ScheduledTask -TaskName 'Fyndkoll' `
+            -Action $action -Trigger $trigger -Settings $settings -Principal $principal `
+            -Description 'Bevakar SweClockers fyndtradar' -Force | Out-Null
+        Write-Host "Schemalagt jobb 'Fyndkoll' registrerat (vid inloggning, 30 s fordrojning)."
+    }
+    catch {
+        Write-Warning "Kunde inte registrera schemalagt jobb: $($_.Exception.Message)"
+        Write-Warning "Startup-genvagen far duga som enda mekanism."
+    }
+
+    # Reserv: genvagen i Startup-mappen. Mutexen i appen ser till att bara en
+    # instans kor, sa det ar ofarligt att ha bada.
     $shell = New-Object -ComObject WScript.Shell
     $sc = $shell.CreateShortcut($startupLink)
     $sc.TargetPath = 'wscript.exe'
-    $sc.Arguments = """$(Join-Path $target 'Start-Fyndkoll.vbs')"""
+    $sc.Arguments = """$vbs"""
     $sc.WorkingDirectory = $target
     $sc.IconLocation = "$(Join-Path $target 'fyndkoll.ico'),0"
     $sc.Description = 'Fyndkoll - bevakar SweClockers fyndtradar'
     $sc.Save()
-    Write-Host ""
-    Write-Host "Autostart pekar nu pa den lokala kopian:"
+    Write-Host "Startup-genvag pa plats som reserv:"
     Write-Host "  $startupLink"
 }
 

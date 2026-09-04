@@ -39,6 +39,18 @@ function Write-FyndLog {
     try { Add-Content -Path $script:LogPath -Value $line -Encoding UTF8 } catch {}
 }
 
+# Logged before anything heavy happens, so a failure during setup leaves a trace.
+# Without this a silent death during startup looked identical to "never launched".
+Write-FyndLog "launch: pid $PID from $PSScriptRoot"
+
+# break, not continue: a half-built window is worse than a clean exit, and the
+# log line is what makes the difference between "crashed" and "never launched".
+trap {
+    Write-FyndLog "FATAL: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+    Write-FyndLog "  at line $($_.InvocationInfo.ScriptLineNumber): $($_.InvocationInfo.Line.Trim())"
+    break
+}
+
 function Get-FyndState {
     if (Test-Path $script:StatePath) {
         try {
