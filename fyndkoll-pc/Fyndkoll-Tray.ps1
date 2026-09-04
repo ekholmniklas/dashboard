@@ -933,6 +933,8 @@ function New-StartupShortcut {
         $sc.TargetPath = 'wscript.exe'
         $sc.Arguments = """$vbs"""
         $sc.WorkingDirectory = $PSScriptRoot
+        $icon = Join-Path $PSScriptRoot 'fyndkoll.ico'
+        if (Test-Path $icon) { $sc.IconLocation = "$icon,0" }
         $sc.Description = 'Fyndkoll - bevakar SweClockers fyndtrådar'
         $sc.Save()
         Write-FyndLog "startup shortcut created at $script:StartupLink"

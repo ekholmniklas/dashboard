@@ -7,17 +7,27 @@ ikon i systemfältet.
 - [Dagens fynd](https://www.sweclockers.com/forum/trad/999559-dagens-fynd-bara-tips-ingen-diskussion-las-forsta-inlagget-forst/sista-sidan)
 - [Övriga fynd](https://www.sweclockers.com/forum/trad/1465406-ovriga-fynd-bara-tips-ingen-diskussion-las-forsta-inlagget-forst/sista-sidan)
 
-## Starta
+## Installera
 
-Dubbelklicka **`Start-Fyndkoll.vbs`**. Ingen installation, inget konsollfönster,
-inga admin-rättigheter.
+Högerklicka **`Install-Fyndkoll.ps1`** → *Kör med PowerShell*. Den kopierar appen
+till `%LOCALAPPDATA%\Fyndkoll\app`, sätter upp autostart och startar den. Inga
+admin-rättigheter, inget att ladda ner.
+
+**Varför en installerare och inte bara dubbelklicka på `.vbs`-filen här?** Den här
+mappen ligger under OneDrive, som lagrar filerna som *Files On-Demand*-platshållare
+(attributet `ReparsePoint`). Vid inloggning har OneDrive inte hunnit starta, så en
+autostart-genväg som pekar hit får en fil utan innehåll och misslyckas **tyst** —
+vilket är exakt vad som hände. `%LOCALAPPDATA%` finns alltid lokalt.
+
+> **Har du ändrat något i den här mappen?** Kör `Install-Fyndkoll.ps1` igen. Appen
+> kör från den lokala kopian, så ändringar här får ingen effekt förrän du gör det.
 
 Första körningen läser in de inlägg som redan finns *utan* att larma, och säger
 bara "Fyndkoll bevakar nu". Efter det kollar den var **10:e minut** och hör av sig
 så fort något nytt dyker upp.
 
-För att den ska starta automatiskt: högerklicka på systemfältsikonen →
-**Starta med Windows**.
+`Install-Fyndkoll.ps1 -Uninstall` tar bort appfilerna och autostarten.
+`-NoAutoStart` installerar utan autostart.
 
 ## Vad den gör när något nytt kommer
 
@@ -100,6 +110,7 @@ så det är mest en smaksak.
 
 | Fil | Roll |
 |---|---|
+| `Install-Fyndkoll.ps1` | Kopierar appen till `%LOCALAPPDATA%\Fyndkoll\app` och sätter upp autostart |
 | `Start-Fyndkoll.vbs` | Startar appen utan konsollfönster |
 | `Fyndkoll-Tray.ps1` | Fönstret, taskbar-knappen, ikonen, menyn, notiserna, timern |
 | `FyndParse.ps1` | Hämtar och tolkar trådarna |
