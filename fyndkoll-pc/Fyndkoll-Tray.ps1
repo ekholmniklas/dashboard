@@ -51,6 +51,33 @@ trap {
     break
 }
 
+<#
+An exception on the UI thread - a timer tick, a menu handler, anywhere - would
+otherwise terminate the process outright, and with nothing logged the app simply
+vanished mid-run. That is what killed it after ten minutes of polling.
+
+This has to run before ANY WinForms control exists, otherwise
+SetUnhandledExceptionMode throws "Thread exception mode cannot be changed once
+any Controls are created on the thread".
+#>
+[System.Windows.Forms.Application]::SetUnhandledExceptionMode(
+    [System.Windows.Forms.UnhandledExceptionMode]::CatchException)
+
+[System.Windows.Forms.Application]::add_ThreadException({
+        param($eventSender, $e)
+        try {
+            Write-FyndLog "UI-undantag: $($e.Exception.GetType().Name): $($e.Exception.Message)"
+            $stack = $e.Exception.StackTrace
+            if ($stack) { Write-FyndLog "  $(($stack -split "`n" | Select-Object -First 2) -join ' ')" }
+        }
+        catch { }
+    })
+
+[AppDomain]::CurrentDomain.add_UnhandledException({
+        param($eventSender, $e)
+        try { Write-FyndLog "FATALT undantag: $($e.ExceptionObject)" } catch { }
+    })
+
 function Get-FyndState {
     if (Test-Path $script:StatePath) {
         try {
@@ -962,12 +989,25 @@ function New-StartupShortcut {
 
 $script:PollTimer = New-Object System.Windows.Forms.Timer
 $script:PollTimer.Interval = [int]$script:State.intervalMinutes * 60000
-$script:PollTimer.Add_Tick({ Start-FyndCheck })
+$script:PollTimer.Add_Tick({
+        try { Start-FyndCheck }
+        catch { Write-FyndLog "poll-tick fel: $($_.Exception.Message)" }
+    })
 
 $script:WatchTimer = New-Object System.Windows.Forms.Timer
 $script:WatchTimer.Interval = 400
 $script:WatchTimer.Add_Tick({
-        if ($script:Pending -and $script:Pending.Handle.IsCompleted) { Complete-FyndCheck }
+        try {
+            if ($script:Pending -and $script:Pending.Handle.IsCompleted) { Complete-FyndCheck }
+        }
+        catch {
+            # Never let a bad poll take the whole app down; reset and wait for the next one.
+            Write-FyndLog "check-tick fel: $($_.Exception.Message)"
+            $script:WatchTimer.Stop()
+            $script:Pending = $null
+            $script:Checking = $false
+            try { Update-Bar } catch { }
+        }
     })
 
 $script:BlinkTimer = New-Object System.Windows.Forms.Timer
