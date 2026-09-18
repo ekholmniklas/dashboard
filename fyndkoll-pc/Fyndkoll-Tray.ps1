@@ -629,6 +629,32 @@ function Stop-Flash {
     try { [FyndkollFlash]::Stop($script:Form.Handle) } catch {}
 }
 
+<#
+Drags the window back onto a real monitor if it is no longer on one.
+
+The app runs for days at a time, so the display layout changes underneath it:
+undock the laptop and a window centred on the second screen keeps coordinates
+like x=-1691 that no longer exist. It is not minimised and not hidden, so
+clicking the taskbar button appears to do nothing at all.
+#>
+function Reset-WindowIfOffScreen {
+    $bounds = $script:Form.Bounds
+    $visible = $false
+    foreach ($screen in [System.Windows.Forms.Screen]::AllScreens) {
+        if ($screen.WorkingArea.IntersectsWith($bounds)) { $visible = $true; break }
+    }
+    if ($visible) { return }
+
+    Write-FyndLog "fonstret lag utanfor skarmen ($($bounds.X),$($bounds.Y)) - centrerar om"
+    $area = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+    $width = [Math]::Min($script:Form.Width, $area.Width)
+    $height = [Math]::Min($script:Form.Height, $area.Height)
+    $script:Form.Bounds = New-Object System.Drawing.Rectangle(
+        [int]($area.X + ($area.Width - $width) / 2),
+        [int]($area.Y + ($area.Height - $height) / 2),
+        $width, $height)
+}
+
 function Show-FyndWindow {
     Stop-Flash
     Stop-Blink
@@ -637,6 +663,7 @@ function Show-FyndWindow {
     if ($script:Form.WindowState -eq [System.Windows.Forms.FormWindowState]::Minimized) {
         $script:Form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
     }
+    Reset-WindowIfOffScreen
     [void]$script:Form.Activate()
     $script:Form.BringToFront()
 }
@@ -707,6 +734,12 @@ $script:Form.Add_Activated({
         Stop-Flash
         Stop-Blink
         if (@($script:State.unread).Count -gt 0) { Clear-Unread }
+    })
+
+# Docking and undocking changes the desktop under a window that has been open for
+# days. Fix it when it happens rather than waiting for someone to notice.
+[Microsoft.Win32.SystemEvents]::add_DisplaySettingsChanged({
+        try { Reset-WindowIfOffScreen } catch { }
     })
 
 # --------------------------------------------------------------- checking -----
@@ -1029,12 +1062,13 @@ $script:Notify.Add_BalloonTipClicked({
         Clear-Unread
     })
 
-# Left-click opens the same menu as right-click, so the unread list is one click away.
-# Showing it at the cursor uses the public API; the Opening event fills it in.
+# Left-click brings up the window. Showing the context menu here instead was
+# unreliable - a ContextMenuStrip shown at the cursor with no owner often flashes
+# and closes immediately, so clicking the icon looked like it did nothing.
+# Right-click still gets the menu, which NotifyIcon handles natively.
 $script:Notify.Add_MouseUp({
         if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
-            Stop-Blink
-            $script:Menu.Show([System.Windows.Forms.Cursor]::Position)
+            try { Show-FyndWindow } catch { Write-FyndLog "kunde inte visa fonstret: $($_.Exception.Message)" }
         }
     })
 
