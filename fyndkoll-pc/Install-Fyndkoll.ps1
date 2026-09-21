@@ -101,32 +101,45 @@ if (-not $NoAutoStart) {
     # Explorer, kan fordroja starten och gar att inspektera i Schemalaggaren.
     Write-Host ""
     try {
-        # PowerShell startas direkt, utan wscript i mitten. Under Schemalaggaren
-        # levde wscript i 8 sekunder och dog med 0x80070001 utan att appen ens
-        # hann logga - trots att exakt samma .vbs kor felfritt manuellt. Ett lager
-        # mindre ar ett fel mindre; .vbs-filen finns kvar for dubbelklick.
+        # Via wscript och .vbs-filen, inte powershell.exe direkt. Kor
+        # Schemalaggaren powershell.exe sjalv far processen en konsol - en svart
+        # Windows Terminal-ikon dyker upp i verktygsfaltet bredvid appen, och
+        # stanger man den dodas appen (CTRL_CLOSE -> 0xC000013A). -WindowStyle
+        # Hidden hjalper inte, och ShowWindow biter inte pa Windows Terminal.
+        # WScript.Shell.Run(..., 0, False) startar den helt utan fonster.
         # Ingen WorkingDirectory: med en satt letar Schemalaggaren efter programmet
         # DAR och far 0x8007010B ("The directory name is invalid").
-        $psExe = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
-        $psArgs = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -STA -File "{0}"' -f (Join-Path $target 'Fyndkoll-Tray.ps1')
-        $action = New-ScheduledTaskAction -Execute $psExe -Argument $psArgs
-        $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+        $wscript = Join-Path $env:WINDIR 'System32\wscript.exe'
+        $action = New-ScheduledTaskAction -Execute $wscript -Argument """$vbs"""
+
+        $atLogon = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
         # En halv minut sa att profil och natverk hunnit upp.
-        $trigger.Delay = 'PT30S'
+        $atLogon.Delay = 'PT30S'
+
+        # Windows avslutar uppgiftens process nar datorn gar i Modern Standby -
+        # loggen visade appen do i samma minut som maskinen somnade. Det gar inte
+        # att forhindra inifran appen, sa jobbet forsoker istallet var tionde
+        # minut. MultipleInstances=IgnoreNew gor att ett forsok ar en nullop om
+        # appen redan lever, och appens mutex ar ett andra skyddslager.
+        $everyTenMin = New-ScheduledTaskTrigger -Once -At (Get-Date).Date.AddMinutes(2) `
+            -RepetitionInterval (New-TimeSpan -Minutes 10)
+
         $settings = New-ScheduledTaskSettingsSet `
             -AllowStartIfOnBatteries `
             -DontStopIfGoingOnBatteries `
             -StartWhenAvailable `
             -ExecutionTimeLimit ([TimeSpan]::Zero) `
             -MultipleInstances IgnoreNew
+        $settings.IdleSettings.StopOnIdleEnd = $false
+
         $principal = New-ScheduledTaskPrincipal `
             -UserId "$env:USERDOMAIN\$env:USERNAME" `
             -LogonType Interactive `
             -RunLevel Limited
         Register-ScheduledTask -TaskName 'Fyndkoll' `
-            -Action $action -Trigger $trigger -Settings $settings -Principal $principal `
+            -Action $action -Trigger @($atLogon, $everyTenMin) -Settings $settings -Principal $principal `
             -Description 'Bevakar SweClockers fyndtradar' -Force | Out-Null
-        Write-Host "Schemalagt jobb 'Fyndkoll' registrerat (vid inloggning, 30 s fordrojning)."
+        Write-Host "Schemalagt jobb 'Fyndkoll' registrerat (vid inloggning + forsok var 10:e minut)."
     }
     catch {
         Write-Warning "Kunde inte registrera schemalagt jobb: $($_.Exception.Message)"

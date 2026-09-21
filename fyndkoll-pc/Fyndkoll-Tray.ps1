@@ -19,6 +19,38 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+<#
+Hide our own console window, first thing.
+
+Task Scheduler allocates a console before PowerShell gets to act on
+-WindowStyle Hidden, so a black console window turns up in the taskbar next to
+the app. Closing it sends CTRL_CLOSE to the process and kills the app - which is
+where the mysterious 0xC000013A exits came from.
+#>
+if (-not ('FyndkollConsole' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class FyndkollConsole
+{
+    [DllImport("kernel32.dll")] private static extern IntPtr GetConsoleWindow();
+    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    private const int SW_HIDE = 0;
+
+    public static bool Hide()
+    {
+        IntPtr handle = GetConsoleWindow();
+        if (handle == IntPtr.Zero) { return false; }
+        return ShowWindow(handle, SW_HIDE);
+    }
+}
+'@
+}
+[void][FyndkollConsole]::Hide()
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -1074,9 +1106,12 @@ $script:Notify.Add_MouseUp({
 
 # ------------------------------------------------------------------ main ------
 
+# Exit quietly if an instance already holds the mutex. The scheduled task retries
+# every ten minutes to recover from being killed, so a duplicate launch is the
+# normal case, not an error - a dialog here would pop up every ten minutes.
 $script:Mutex = New-Object System.Threading.Mutex($false, 'Global\FyndkollTray')
 if (-not $script:Mutex.WaitOne(0, $false)) {
-    [System.Windows.Forms.MessageBox]::Show('Fyndkoll körs redan.', 'Fyndkoll') | Out-Null
+    Write-FyndLog 'redan igang - avslutar tyst'
     return
 }
 
