@@ -54,14 +54,14 @@ public static class FyndkollConsole
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-. (Join-Path $PSScriptRoot 'FyndParse.ps1')
+. (Join-Path $PSScriptRoot 'FyndSources.ps1')
 
 # ---------------------------------------------------------------- state -------
 
 $script:DataDir = Join-Path $env:LOCALAPPDATA 'Fyndkoll'
 $script:StatePath = Join-Path $script:DataDir 'state.json'
 $script:LogPath = Join-Path $script:DataDir 'fyndkoll.log'
-$script:ModulePath = Join-Path $PSScriptRoot 'FyndParse.ps1'
+$script:ModulePath = Join-Path $PSScriptRoot 'FyndSources.ps1'
 
 if (-not (Test-Path $script:DataDir)) { New-Item -ItemType Directory -Path $script:DataDir -Force | Out-Null }
 
@@ -121,6 +121,9 @@ function Get-FyndState {
     }
     [pscustomobject]@{
         lastSeen        = [pscustomobject]@{}
+        seenIds         = [pscustomobject]@{}
+        sources         = [pscustomobject]@{}
+        muted           = $false
         intervalMinutes = 10
         unread          = @()
         recent          = @()
@@ -137,28 +140,94 @@ function Save-FyndState {
     catch { Write-FyndLog "could not save state: $($_.Exception.Message)" }
 }
 
+# Nycklarna är källornas id ('swec-999559', 'pepper-hot'), inte trådnummer, så
+# alla källtyper delar samma bokföring.
 function Get-LastSeenFor {
-    param($State, [int64]$ThreadId)
-    $prop = $State.lastSeen.PSObject.Properties[[string]$ThreadId]
+    param($State, [string]$SourceId)
+    $prop = $State.lastSeen.PSObject.Properties[$SourceId]
     if ($prop) { return [int64]$prop.Value }
     return [int64]0
 }
 
 function Set-LastSeenFor {
-    param($State, [int64]$ThreadId, [int64]$PostId)
-    $key = [string]$ThreadId
-    if ($State.lastSeen.PSObject.Properties[$key]) { $State.lastSeen.$key = $PostId }
-    else { $State.lastSeen | Add-Member -NotePropertyName $key -NotePropertyValue $PostId }
+    param($State, [string]$SourceId, [int64]$PostId)
+    if ($State.lastSeen.PSObject.Properties[$SourceId]) { $State.lastSeen.$SourceId = $PostId }
+    else { $State.lastSeen | Add-Member -NotePropertyName $SourceId -NotePropertyValue $PostId }
+}
+
+<#
+RSS-källor kan inte använda högvattenmärke: Pepperdeals id:n växer inte med
+tiden, eftersom ett äldre fynd kan bli hett senare och då dyka upp i flödet. För
+dem sparas sedda id:n som en mängd istället. Flödet rymmer 30 poster, så 300
+sparade id:n räcker med god marginal.
+#>
+function Get-SeenIdsFor {
+    param($State, [string]$SourceId)
+    $prop = $State.seenIds.PSObject.Properties[$SourceId]
+    if ($prop) { return @($prop.Value) }
+    return @()
+}
+
+function Set-SeenIdsFor {
+    param($State, [string]$SourceId, $Ids)
+    $arr = @($Ids | Select-Object -Unique | Select-Object -First 300)
+    if ($State.seenIds.PSObject.Properties[$SourceId]) { $State.seenIds.$SourceId = $arr }
+    else { $State.seenIds | Add-Member -NotePropertyName $SourceId -NotePropertyValue $arr }
+}
+
+# Nya källor är påslagna tills man aktivt bockar ur dem.
+function Test-SourceEnabled {
+    param($State, [string]$SourceId)
+    $prop = $State.sources.PSObject.Properties[$SourceId]
+    if ($prop) { return [bool]$prop.Value }
+    return $true
+}
+
+function Set-SourceEnabled {
+    param($State, [string]$SourceId, [bool]$Enabled)
+    if ($State.sources.PSObject.Properties[$SourceId]) { $State.sources.$SourceId = $Enabled }
+    else { $State.sources | Add-Member -NotePropertyName $SourceId -NotePropertyValue $Enabled }
+}
+
+function Get-EnabledSources {
+    @($script:FyndSources | Where-Object { Test-SourceEnabled -State $script:State -SourceId $_.Id })
 }
 
 $script:State = Get-FyndState
-# 'recent' and 'filter' arrived after the first release, so a state file written
-# by an older build will not have them.
-if (-not $script:State.PSObject.Properties['recent']) {
-    $script:State | Add-Member -NotePropertyName recent -NotePropertyValue @()
+# Fält har tillkommit efterhand; en statefil från en äldre version saknar dem.
+foreach ($fld in @(
+        @{ Name = 'recent'; Value = @() },
+        @{ Name = 'filter'; Value = 'all' },
+        @{ Name = 'seenIds'; Value = [pscustomobject]@{} },
+        @{ Name = 'sources'; Value = [pscustomobject]@{} },
+        @{ Name = 'muted'; Value = $false }
+    )) {
+    if (-not $script:State.PSObject.Properties[$fld.Name]) {
+        $script:State | Add-Member -NotePropertyName $fld.Name -NotePropertyValue $fld.Value
+    }
 }
-if (-not $script:State.PSObject.Properties['filter']) {
-    $script:State | Add-Member -NotePropertyName filter -NotePropertyValue 'all'
+
+<#
+Tidigare versioner nycklade lastSeen på trådnummer ("999559"); nu används
+källornas id. Utan den här flytten skulle de två ursprungliga trådarna se ut som
+att de aldrig lästs, och larma om allt på sista sidan en gång till.
+#>
+foreach ($old in @(
+        @{ From = '999559'; To = 'swec-999559' },
+        @{ From = '1465406'; To = 'swec-1465406' }
+    )) {
+    $p = $script:State.lastSeen.PSObject.Properties[$old.From]
+    if ($p -and -not $script:State.lastSeen.PSObject.Properties[$old.To]) {
+        $script:State.lastSeen | Add-Member -NotePropertyName $old.To -NotePropertyValue ([int64]$p.Value)
+        $script:State.lastSeen.PSObject.Properties.Remove($old.From)
+        Write-FyndLog "flyttade lastSeen $($old.From) -> $($old.To)"
+    }
+}
+# Samma sak för raderna som redan ligger sparade.
+foreach ($row in (@($script:State.recent) + @($script:State.unread))) {
+    if ($row -and $row.PSObject.Properties['ThreadId'] -and "$($row.ThreadId)" -match '^\d+$') {
+        $row.ThreadId = "swec-$($row.ThreadId)"
+    }
 }
 if ($IntervalMinutes -gt 0) { $script:State.intervalMinutes = $IntervalMinutes }
 if (-not $script:State.intervalMinutes -or $script:State.intervalMinutes -lt 1) { $script:State.intervalMinutes = 10 }
@@ -338,6 +407,7 @@ $script:LastCheck = $null
 function Set-TrayTooltip {
     $unread = @($script:State.unread).Count
     $parts = @('Fyndkoll')
+    if ($script:State.muted) { $parts += 'TYST' }
     if ($unread -gt 0) { $parts += "$unread nya fynd" }
     if ($script:LastCheck) { $parts += "kollat $($script:LastCheck.ToString('HH:mm'))" }
     else { $parts += 'inte kollat än' }
@@ -503,8 +573,8 @@ function Set-FyndFilter {
 
 $script:FilterChoices = @(
     [pscustomobject]@{ Value = 'all'; Label = 'Allt' }
-) + @($script:FyndThreads | ForEach-Object {
-        [pscustomobject]@{ Value = [string]$_.Id; Label = $_.Label }
+) + @($script:FyndSources | ForEach-Object {
+        [pscustomobject]@{ Value = $_.Id; Label = $_.Label }
     })
 
 foreach ($choice in $script:FilterChoices) {
@@ -514,6 +584,52 @@ foreach ($choice in $script:FilterChoices) {
     [void]$script:FilterButton.DropDownItems.Add($mi)
 }
 [void]$script:Bar.Items.Add($script:FilterButton)
+
+[void]$script:Bar.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+
+<#
+Källor: bockar man ur en slutar den hämtas och larma helt. Det är något annat än
+"Visar:" bredvid, som bara filtrerar vad fönstret listar.
+#>
+$script:SourceButton = New-Object System.Windows.Forms.ToolStripDropDownButton
+$script:SourceButton.Text = 'Källor'
+$script:SourceButton.DisplayStyle = [System.Windows.Forms.ToolStripItemDisplayStyle]::Text
+$script:SourceButton.ToolTipText = 'Välj vilka källor som bevakas'
+
+function Switch-FyndSource {
+    param([string]$SourceId)
+    $now = Test-SourceEnabled -State $script:State -SourceId $SourceId
+    Set-SourceEnabled -State $script:State -SourceId $SourceId -Enabled (-not $now)
+    Save-FyndState -State $script:State
+    Write-FyndLog "kalla $SourceId $(if ($now) { 'av' } else { 'pa' })"
+    Update-Window
+    Update-Bar
+}
+
+foreach ($src in $script:FyndSources) {
+    $mi = New-Object System.Windows.Forms.ToolStripMenuItem $src.Label
+    $mi.Tag = $src.Id
+    $mi.CheckOnClick = $false
+    $mi.Add_Click({ Switch-FyndSource -SourceId ([string]$this.Tag) }.GetNewClosure())
+    [void]$script:SourceButton.DropDownItems.Add($mi)
+}
+[void]$script:Bar.Items.Add($script:SourceButton)
+
+[void]$script:Bar.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+
+# Tyst läge, för möten. Fynden samlas fortfarande in.
+$script:MuteButton = New-Object System.Windows.Forms.ToolStripButton
+$script:MuteButton.DisplayStyle = [System.Windows.Forms.ToolStripItemDisplayStyle]::Text
+$script:MuteButton.CheckOnClick = $false
+$script:MuteButton.Add_Click({
+        $script:State.muted = -not $script:State.muted
+        Save-FyndState -State $script:State
+        Write-FyndLog "tyst lage: $($script:State.muted)"
+        if ($script:State.muted) { Stop-Blink; Stop-Flash }
+        Update-Bar
+        Set-TrayTooltip
+    })
+[void]$script:Bar.Items.Add($script:MuteButton)
 
 [void]$script:Bar.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
 
@@ -640,6 +756,32 @@ function Update-Bar {
     if ($script:Checking) { $script:RefreshButton.Text = 'Uppdaterar...' }
     else { $script:RefreshButton.Text = 'Uppdatera' }
     $script:MarkReadButton.Enabled = (@($script:State.unread).Count -gt 0)
+
+    if ($script:MuteButton) {
+        if ($script:State.muted) {
+            $script:MuteButton.Text = 'Notiser: AV'
+            $script:MuteButton.ToolTipText = 'Tyst läge. Fynd samlas in men inget larmar. Klicka för att slå på.'
+            $script:MuteButton.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#B00020')
+            $script:MuteButton.Font = New-Object System.Drawing.Font $script:Bar.Font, ([System.Drawing.FontStyle]::Bold)
+        }
+        else {
+            $script:MuteButton.Text = 'Notiser: på'
+            $script:MuteButton.ToolTipText = 'Klicka för tyst läge, t.ex. under möten.'
+            $script:MuteButton.ForeColor = [System.Drawing.SystemColors]::ControlText
+            $script:MuteButton.Font = $script:Bar.Font
+        }
+    }
+
+    if ($script:SourceButton) {
+        $on = 0
+        foreach ($mi in $script:SourceButton.DropDownItems) {
+            $enabled = Test-SourceEnabled -State $script:State -SourceId ([string]$mi.Tag)
+            $mi.Checked = $enabled
+            if ($enabled) { $on++ }
+        }
+        $total = @($script:FyndSources).Count
+        $script:SourceButton.Text = if ($on -eq $total) { "Källor ($total)" } else { "Källor ($on/$total)" }
+    }
 
     if ($script:FilterButton) {
         $current = [string]$script:State.filter
@@ -787,7 +929,17 @@ function Start-FyndCheck {
     Update-Bar
 
     $seen = @{}
-    foreach ($t in $script:FyndThreads) { $seen[[string]$t.Id] = Get-LastSeenFor -State $script:State -ThreadId $t.Id }
+    $wanted = @()
+    foreach ($s in (Get-EnabledSources)) {
+        $seen[$s.Id] = Get-LastSeenFor -State $script:State -SourceId $s.Id
+        $wanted += $s.Id
+    }
+    if ($wanted.Count -eq 0) {
+        # Allt urbockat - inget att hämta.
+        $script:Checking = $false
+        Update-Bar
+        return
+    }
 
     $runspace = [runspacefactory]::CreateRunspace()
     $runspace.ApartmentState = 'MTA'
@@ -795,21 +947,21 @@ function Start-FyndCheck {
     $shell = [powershell]::Create()
     $shell.Runspace = $runspace
     [void]$shell.AddScript({
-            param($ModulePath, $Seen)
+            param($ModulePath, $Seen, $Wanted)
             . $ModulePath
             $out = @{ posts = @(); errors = @() }
-            foreach ($t in $script:FyndThreads) {
+            foreach ($s in $script:FyndSources) {
+                if ($Wanted -notcontains $s.Id) { continue }
                 try {
-                    $last = [int64]$Seen[[string]$t.Id]
-                    $posts = @(Get-FyndThreadPosts -Thread $t -LastSeen $last)
-                    $out.posts += $posts
+                    $last = [int64]$Seen[$s.Id]
+                    $out.posts += @(Get-FyndSourcePosts -Source $s -LastSeen $last)
                 }
                 catch {
-                    $out.errors += "$($t.Label): $($_.Exception.Message)"
+                    $out.errors += "$($s.Label): $($_.Exception.Message)"
                 }
             }
             $out | ConvertTo-Json -Depth 6 -Compress
-        }).AddArgument($script:ModulePath).AddArgument($seen)
+        }).AddArgument($script:ModulePath).AddArgument($seen).AddArgument($wanted)
 
     $script:Pending = [pscustomobject]@{
         Shell    = $shell
@@ -864,32 +1016,56 @@ function Complete-FyndCheck {
     $script:LastError = if ($errors.Count -gt 0) { $errors -join '; ' } else { $null }
     $script:LastCheck = Get-Date
 
-    # Everything the window lists, unread or not. Merged rather than replaced:
-    # a thread that has just rolled onto a new page returns almost nothing, and
-    # overwriting would throw away the history that is already on screen.
-    $script:State.recent = @(@($posts) + @($script:State.recent)) |
-        Sort-Object PostId -Descending -Unique |
-        Select-Object -First 80
+    # Allt fönstret listar, läst som oläst. Slås ihop i stället för att skrivas
+    # över: en tråd som just bytt sida returnerar nästan ingenting, och en
+    # överskrivning skulle kasta historiken som redan syns.
+    # Sorteras på tid, inte på PostId - id:n är bara jämförbara inom en källa.
+    $merged = @(@($posts) + @($script:State.recent))
+    $byKey = [ordered]@{}
+    foreach ($r in ($merged | Sort-Object { [int64]$_.CreatedAt } -Descending)) {
+        $key = "$($r.ThreadId)/$($r.PostId)"
+        if (-not $byKey.Contains($key)) { $byKey[$key] = $r }
+    }
+    $script:State.recent = @($byKey.Values | Select-Object -First 120)
 
     $isFirstRun = -not $script:State.seeded
     $fresh = @()
 
-    foreach ($t in $script:FyndThreads) {
-        $mine = @($posts | Where-Object { $_.ThreadId -eq $t.Id })
+    foreach ($s in (Get-EnabledSources)) {
+        $mine = @($posts | Where-Object { $_.ThreadId -eq $s.Id })
         if ($mine.Count -eq 0) { continue }
-        $last = Get-LastSeenFor -State $script:State -ThreadId $t.Id
-        if ($last -gt 0) { $fresh += @($mine | Where-Object { $_.PostId -gt $last }) }
-        $highest = ($mine | Measure-Object -Property PostId -Maximum).Maximum
-        if ($highest -gt $last) { Set-LastSeenFor -State $script:State -ThreadId $t.Id -PostId $highest }
+
+        if ($s.Type -eq 'rss') {
+            # Mängd av sedda id:n; id växer inte med tiden för RSS.
+            $already = @(Get-SeenIdsFor -State $script:State -SourceId $s.Id)
+            if ($already.Count -gt 0) {
+                $fresh += @($mine | Where-Object { $already -notcontains [int64]$_.PostId })
+            }
+            Set-SeenIdsFor -State $script:State -SourceId $s.Id `
+                -Ids (@($mine | ForEach-Object { [int64]$_.PostId }) + $already)
+        }
+        else {
+            $last = Get-LastSeenFor -State $script:State -SourceId $s.Id
+            if ($last -gt 0) { $fresh += @($mine | Where-Object { $_.PostId -gt $last }) }
+            $highest = ($mine | Measure-Object -Property PostId -Maximum).Maximum
+            if ($highest -gt $last) { Set-LastSeenFor -State $script:State -SourceId $s.Id -PostId $highest }
+        }
     }
 
     $script:State.seeded = $true
 
     if ($isFirstRun) {
-        # Do not fire 35 notifications for posts that were already there.
-        Write-FyndLog "seeded with $($posts.Count) existing posts"
+        # Larma inte om inlägg som redan låg där när appen kom till.
+        Write-FyndLog "seedade med $($posts.Count) befintliga inlägg"
         Save-FyndState -State $script:State
-        $1
+        if (-not $script:State.muted) {
+            $script:Notify.ShowBalloonTip(6000, 'Fyndkoll bevakar nu',
+                "Läste in $($posts.Count) befintliga inlägg. Du får en notis när något nytt postas.",
+                [System.Windows.Forms.ToolTipIcon]::Info)
+        }
+        Update-Window
+        Set-TrayTooltip
+        return
     }
 
     if ($fresh.Count -eq 0) {
@@ -900,29 +1076,45 @@ function Complete-FyndCheck {
         return
     }
 
-    $fresh = @($fresh | Sort-Object PostId -Descending)
-    Write-FyndLog "$($fresh.Count) new post(s): $(($fresh | ForEach-Object { $_.Title }) -join ' | ')"
+    $fresh = @($fresh | Sort-Object { [int64]$_.CreatedAt } -Descending)
+    Write-FyndLog "$($fresh.Count) nya inlägg: $(($fresh | ForEach-Object { "[$($_.ThreadLabel)] $($_.Title)" }) -join ' | ')"
 
-    $script:State.unread = @(@($fresh) + @($script:State.unread) | Sort-Object PostId -Descending -Unique | Select-Object -First 40)
+    $unreadAll = @(@($fresh) + @($script:State.unread))
+    $seenKeys = [ordered]@{}
+    foreach ($r in ($unreadAll | Sort-Object { [int64]$_.CreatedAt } -Descending)) {
+        $key = "$($r.ThreadId)/$($r.PostId)"
+        if (-not $seenKeys.Contains($key)) { $seenKeys[$key] = $r }
+    }
+    $script:State.unread = @($seenKeys.Values | Select-Object -First 40)
     Save-FyndState -State $script:State
 
-    $newest = $fresh[0]
-    if ($fresh.Count -eq 1) {
-        $body = @($newest.Price, $newest.Category, $newest.Store) | Where-Object { $_ }
-        $text = ($body -join ' - ')
-        if ($newest.Note) { $text = $text + "`n" + $newest.Note }
-        if ($text.Length -gt 250) { $text = $text.Substring(0, 250) + '...' }
-        $script:Notify.ShowBalloonTip(15000, "FYND - $($newest.Title)", $text, [System.Windows.Forms.ToolTipIcon]::Info)
+    <#
+    Tyst läge: fynden samlas, fönstret och siffran uppdateras som vanligt, men
+    ingen notis, inget blink och ingen blinkande taskbar-knapp. Tanken är att
+    kunna sitta i möte utan att missa något - bara utan att bli avbruten.
+    #>
+    if ($script:State.muted) {
+        Write-FyndLog 'tyst läge - hoppar over notis'
     }
     else {
-        $lines = @($fresh | Select-Object -First 5 | ForEach-Object {
-                if ($_.Price) { "$($_.Price) - $($_.Title)" } else { $_.Title }
-            })
-        $script:Notify.ShowBalloonTip(15000, "$($fresh.Count) nya fynd", ($lines -join "`n"), [System.Windows.Forms.ToolTipIcon]::Info)
+        $newest = $fresh[0]
+        if ($fresh.Count -eq 1) {
+            $body = @($newest.Price, $newest.Category, $newest.Store) | Where-Object { $_ }
+            $text = ($body -join ' - ')
+            if ($newest.Note) { $text = $text + "`n" + $newest.Note }
+            if ($text.Length -gt 250) { $text = $text.Substring(0, 250) + '...' }
+            $script:Notify.ShowBalloonTip(15000, "FYND - $($newest.Title)", $text, [System.Windows.Forms.ToolTipIcon]::Info)
+        }
+        else {
+            $lines = @($fresh | Select-Object -First 5 | ForEach-Object {
+                    if ($_.Price) { "$($_.Price) - $($_.Title)" } else { $_.Title }
+                })
+            $script:Notify.ShowBalloonTip(15000, "$($fresh.Count) nya fynd", ($lines -join "`n"), [System.Windows.Forms.ToolTipIcon]::Info)
+        }
+        Start-Blink
+        Start-Flash
     }
 
-    Start-Blink
-    Start-Flash
     Update-Window
     Set-TrayTooltip
 }
@@ -982,14 +1174,29 @@ function Build-Menu {
     $check.Add_Click({ Start-FyndCheck })
     [void]$script:Menu.Items.Add($check)
 
-    $threads = New-Object System.Windows.Forms.ToolStripMenuItem 'Öppna tråd'
-    foreach ($t in $script:FyndThreads) {
-        $ti = New-Object System.Windows.Forms.ToolStripMenuItem $t.Label
-        $ti.Tag = (Get-FyndLastPageUrl $t)
+    $threads = New-Object System.Windows.Forms.ToolStripMenuItem 'Öppna källa'
+    foreach ($src in $script:FyndSources) {
+        $ti = New-Object System.Windows.Forms.ToolStripMenuItem $src.Label
+        $ti.Tag = switch ($src.Type) {
+            'sweclockers' { Get-FyndLastPageUrl ([pscustomobject]@{ Slug = $src.Slug }) }
+            default { $src.Url }
+        }
         $ti.Add_Click({ Open-Url -Url $this.Tag }.GetNewClosure())
         [void]$threads.DropDownItems.Add($ti)
     }
     [void]$script:Menu.Items.Add($threads)
+
+    $mute = New-Object System.Windows.Forms.ToolStripMenuItem 'Tyst läge'
+    $mute.Checked = [bool]$script:State.muted
+    $mute.ToolTipText = 'Samla in fynd men larma inte'
+    $mute.Add_Click({
+            $script:State.muted = -not $script:State.muted
+            Save-FyndState -State $script:State
+            if ($script:State.muted) { Stop-Blink; Stop-Flash }
+            Update-Bar
+            Set-TrayTooltip
+        })
+    [void]$script:Menu.Items.Add($mute)
 
     $interval = New-Object System.Windows.Forms.ToolStripMenuItem "Intervall ($($script:State.intervalMinutes) min)"
     foreach ($m in @(5, 10, 15, 30, 60)) {

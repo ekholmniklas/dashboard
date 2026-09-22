@@ -26,6 +26,7 @@ $startupLink = Join-Path ([Environment]::GetFolderPath('Startup')) 'Fyndkoll.lnk
 $files = @(
     'Fyndkoll-Tray.ps1',
     'FyndParse.ps1',
+    'FyndSources.ps1',
     'Start-Fyndkoll.vbs',
     'fyndkoll.ico',
     'fyndkoll-alert.ico',
